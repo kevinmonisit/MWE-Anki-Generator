@@ -6,8 +6,8 @@ import { execSync } from "child_process";
 // Force dynamic - never cache this route
 export const dynamic = "force-dynamic";
 
-const CARDS_PATH = join(process.cwd(), "user_cards.json");
-const OUTPUT_APKG = join(process.cwd(), "user_deck.apkg");
+const CARDS_PATH = join(process.cwd(), "output", "user_cards.json");
+const OUTPUT_APKG = join(process.cwd(), "output", "user_deck.apkg");
 const BUILD_SCRIPT = join(process.cwd(), "scripts", "build_custom_deck.py");
 
 export async function GET() {

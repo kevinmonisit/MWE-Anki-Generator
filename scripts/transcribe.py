@@ -10,8 +10,13 @@ with language set to Spanish for full Apple Silicon acceleration.
 import time
 import mlx_whisper
 
+import os
+
 AUDIO_FILE = "video.mp3"
-OUTPUT_SRT = "video.srt"
+OUTPUT_DIR = "output"
+OUTPUT_SRT = os.path.join(OUTPUT_DIR, "video.srt")
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # MLX-native converted model — runs directly on Apple Silicon GPU
 MODEL_ID = "mlx-community/whisper-large-v3-turbo"

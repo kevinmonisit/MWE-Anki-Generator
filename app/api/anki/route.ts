@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 
 // Force dynamic - never cache this route
 export const dynamic = "force-dynamic";
 
-const CARDS_PATH = join(process.cwd(), "user_cards.json");
+const CARDS_PATH = join(process.cwd(), "output", "user_cards.json");
 
 function readCards(): Array<{
   segmentId: number;
@@ -23,6 +23,7 @@ function readCards(): Array<{
 }
 
 function writeCards(cards: unknown[]) {
+  mkdirSync(join(process.cwd(), "output"), { recursive: true });
   writeFileSync(CARDS_PATH, JSON.stringify(cards, null, 2), "utf-8");
 }
 

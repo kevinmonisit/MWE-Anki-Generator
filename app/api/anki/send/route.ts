@@ -8,7 +8,7 @@ const ANKI_CONNECT_URL = "http://127.0.0.1:8765";
 const DECK_NAME = "Spanish Vocab in Context";
 const MODEL_NAME = "Spanish Vocab in Context";
 
-const SUBS2SRS_DIR = join(process.cwd(), "subs2srs_deck");
+const SUBS2SRS_DIR = join(process.cwd(), "output", "subs2srs_deck");
 const AUDIO_DIR = join(SUBS2SRS_DIR, "audio");
 const IMG_DIR = join(SUBS2SRS_DIR, "img");
 

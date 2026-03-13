@@ -15,7 +15,7 @@ import sys
 import genanki
 from pathlib import Path
 
-SUBS2SRS_DIR = Path(__file__).parent / "subs2srs_deck"
+SUBS2SRS_DIR = Path(__file__).parent.parent / "output" / "subs2srs_deck"
 AUDIO_DIR = SUBS2SRS_DIR / "audio"
 IMG_DIR = SUBS2SRS_DIR / "img"
 

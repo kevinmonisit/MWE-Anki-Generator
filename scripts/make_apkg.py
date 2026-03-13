@@ -8,10 +8,11 @@ import genanki
 import random
 from pathlib import Path
 
-DECK_TSV   = Path("subs2srs_deck/deck.tsv")
-AUDIO_DIR  = Path("subs2srs_deck/audio")
-IMG_DIR    = Path("subs2srs_deck/img")
-OUT_APKG   = Path("subs2srs_deck/subs2srs.apkg")
+OUT_DIR    = Path("output")
+DECK_TSV   = OUT_DIR / "subs2srs_deck" / "deck.tsv"
+AUDIO_DIR  = OUT_DIR / "subs2srs_deck" / "audio"
+IMG_DIR    = OUT_DIR / "subs2srs_deck" / "img"
+OUT_APKG   = OUT_DIR / "subs2srs.apkg"
 
 # Stable IDs (random but fixed so re-runs don't duplicate)
 MODEL_ID = 1_234_567_890

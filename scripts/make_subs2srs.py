@@ -14,15 +14,15 @@ import subprocess
 import csv
 from pathlib import Path
 
-SRT  = "video.srt"
+SRT  = str(Path("output") / "video.srt")
 MP4  = "video.mp4"
-OUT  = Path("subs2srs_deck")
+OUT  = Path("output") / "subs2srs_deck"
 AUDIO_DIR = OUT / "audio"
 IMG_DIR   = OUT / "img"
 
-OUT.mkdir(exist_ok=True)
-AUDIO_DIR.mkdir(exist_ok=True)
-IMG_DIR.mkdir(exist_ok=True)
+OUT.mkdir(parents=True, exist_ok=True)
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def srt_time_to_seconds(t: str) -> float:

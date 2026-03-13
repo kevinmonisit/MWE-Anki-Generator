@@ -4,7 +4,7 @@ import { parseSRT } from "@/lib/transcript";
 import TranscriptViewer from "@/components/TranscriptViewer";
 
 export default function Home() {
-  const srtPath = join(process.cwd(), "public", "transcript.srt");
+  const srtPath = join(process.cwd(), "output", "video.srt");
   const srtContent = readFileSync(srtPath, "utf-8");
   const segments = parseSRT(srtContent);
 
