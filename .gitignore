@@ -1,0 +1,39 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Media (large files)
+*.mp3
+*.mp4
+*.webm
+video.srt
+
+# Generated decks
+*.apkg
+subs2srs_deck/
+mencho_deck/
+
+# User data
+user_cards.json
+
+# Node / Next.js (web/)
+web/node_modules/
+web/.next/
+web/out/
+web/build/
+web/.env*
+web/.vercel
+web/*.tsbuildinfo
+web/next-env.d.ts
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
