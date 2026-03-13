@@ -5,7 +5,7 @@ import { join } from "path";
 // Force dynamic - never cache this route
 export const dynamic = "force-dynamic";
 
-const CARDS_PATH = join(process.cwd(), "..", "user_cards.json");
+const CARDS_PATH = join(process.cwd(), "user_cards.json");
 
 function readCards(): Array<{
   segmentId: number;

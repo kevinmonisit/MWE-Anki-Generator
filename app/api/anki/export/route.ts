@@ -6,9 +6,9 @@ import { execSync } from "child_process";
 // Force dynamic - never cache this route
 export const dynamic = "force-dynamic";
 
-const CARDS_PATH = join(process.cwd(), "..", "user_cards.json");
-const OUTPUT_APKG = join(process.cwd(), "..", "user_deck.apkg");
-const BUILD_SCRIPT = join(process.cwd(), "..", "build_custom_deck.py");
+const CARDS_PATH = join(process.cwd(), "user_cards.json");
+const OUTPUT_APKG = join(process.cwd(), "user_deck.apkg");
+const BUILD_SCRIPT = join(process.cwd(), "scripts", "build_custom_deck.py");
 
 export async function GET() {
   try {
@@ -31,7 +31,7 @@ export async function GET() {
     const result = execSync(
       `python3 "${BUILD_SCRIPT}" "${CARDS_PATH}" "${OUTPUT_APKG}"`,
       {
-        cwd: join(process.cwd(), ".."),
+        cwd: process.cwd(),
         timeout: 30000,
         encoding: "utf-8",
       }
