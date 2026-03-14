@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Transcript Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* URL Input Bar */
+    .url-bar {
+      display: flex;
+      gap: 10px;
+      padding: 12px 16px;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .url-bar input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .url-bar input:focus { border-color: #e94560; }
+
+    .url-bar button {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 8px;
+      background: #e94560;
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+
+    .url-bar button:hover { background: #c73a52; }
+    .url-bar button:disabled { background: #555; cursor: not-allowed; }
+
+    /* Progress area */
+    .progress {
+      padding: 12px 16px;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      font-size: 13px;
+      color: #aaa;
+      display: none;
+      flex-shrink: 0;
+    }
+
+    .progress.visible { display: block; }
+
+    .pipeline {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .pipeline-step {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      background: #1a1a2e;
+      color: #555;
+      transition: all 0.3s;
+      white-space: nowrap;
+    }
+
+    .pipeline-step.active {
+      background: rgba(233, 69, 96, 0.2);
+      color: #e94560;
+      box-shadow: 0 0 8px rgba(233, 69, 96, 0.15);
+    }
+
+    .pipeline-step.done {
+      background: rgba(46, 213, 115, 0.15);
+      color: #2ed573;
+    }
+
+    .pipeline-arrow {
+      color: #333;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .pipeline-arrow.done { color: #2ed573; }
+    .pipeline-arrow.active { color: #e94560; }
+
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid transparent;
+      border-top-color: #e94560;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .checkmark::before { content: "✓"; font-weight: bold; }
+
+    /* Main layout: sidebar + content */
+    .main-layout {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 260px;
+      background: #16213e;
+      border-right: 1px solid #0f3460;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-header {
+      padding: 12px 16px;
+      font-weight: 600;
+      font-size: 13px;
+      color: #e94560;
+      border-bottom: 1px solid #0f3460;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .sidebar-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+
+    .sidebar-empty {
+      padding: 24px 16px;
+      color: #555;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .sidebar-item {
+      padding: 10px 16px;
+      cursor: pointer;
+      transition: background 0.15s;
+      border-left: 3px solid transparent;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sidebar-item:hover { background: rgba(233, 69, 96, 0.1); }
+
+    .sidebar-item.active {
+      background: rgba(233, 69, 96, 0.15);
+      border-left-color: #e94560;
+    }
+
+    .sidebar-item-title {
+      flex: 1;
+      font-size: 13px;
+      line-height: 1.4;
+      color: #ccc;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    .sidebar-item.active .sidebar-item-title { color: #fff; }
+
+    .sidebar-item-delete {
+      opacity: 0;
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: opacity 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+
+    .sidebar-item:hover .sidebar-item-delete { opacity: 1; }
+    .sidebar-item-delete:hover { color: #e94560; }
+
+    /* Right content area */
+    .right-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    /* Welcome state */
+    .welcome {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+      color: #666;
+    }
+
+    .welcome h2 { color: #e94560; font-size: 22px; }
+    .welcome p { font-size: 14px; }
+
+    /* Video + transcript content */
+    .content {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .content.visible { display: flex; }
+
+    .video-section {
+      flex: 0 0 55%;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .video-section video {
+      max-width: 100%;
+      max-height: 100%;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .transcript-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border-top: 2px solid #e94560;
+      min-height: 0;
+    }
+
+    .transcript-header {
+      padding: 10px 16px;
+      background: #16213e;
+      font-weight: 600;
+      font-size: 14px;
+      color: #e94560;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0;
+    }
+
+    .transcript-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .transcript-entry {
+      display: flex;
+      gap: 12px;
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: background 0.15s;
+      border-left: 3px solid transparent;
+    }
+
+    .transcript-entry:hover { background: rgba(233, 69, 96, 0.1); }
+
+    .transcript-entry.active {
+      background: rgba(233, 69, 96, 0.15);
+      border-left-color: #e94560;
+    }
+
+    .transcript-time {
+      font-size: 12px;
+      color: #e94560;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      white-space: nowrap;
+      min-width: 80px;
+      padding-top: 2px;
+    }
+
+    .transcript-text {
+      font-size: 14px;
+      line-height: 1.5;
+      color: #ddd;
+    }
+
+    .transcript-entry.active .transcript-text {
+      color: #fff;
+      font-weight: 500;
+    }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #1a1a2e; }
+    ::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #e94560; }
+  </style>
+</head>
+<body>
+
+  <div class="url-bar">
+    <input type="text" id="urlInput" placeholder="Paste a YouTube URL here..." />
+    <button id="downloadBtn" onclick="startDownload()">Download</button>
+  </div>
+
+  <div class="progress" id="progress">
+    <div class="pipeline" id="pipeline">
+      <div class="pipeline-step" data-step="1"><span class="step-icon"></span>Fetching info</div>
+      <span class="pipeline-arrow">→</span>
+      <div class="pipeline-step" data-step="2"><span class="step-icon"></span>Downloading MP4</div>
+      <span class="pipeline-arrow">→</span>
+      <div class="pipeline-step" data-step="3"><span class="step-icon"></span>Extracting MP3</div>
+      <span class="pipeline-arrow">→</span>
+      <div class="pipeline-step" data-step="4"><span class="step-icon"></span>Whisper transcription</div>
+    </div>
+  </div>
+
+  <div class="main-layout">
+    <div class="sidebar">
+      <div class="sidebar-header">Downloaded Videos</div>
+      <div class="sidebar-list" id="sidebarList">
+        <div class="sidebar-empty" id="sidebarEmpty">No videos yet</div>
+      </div>
+    </div>
+
+    <div class="right-content">
+      <div class="welcome" id="welcome">
+        <h2>YouTube Transcript Viewer</h2>
+        <p>Paste a YouTube link above and click Download</p>
+      </div>
+
+      <div class="content" id="content">
+        <div class="video-section">
+          <video id="videoPlayer" controls></video>
+        </div>
+        <div class="transcript-section">
+          <div class="transcript-header">Transcript</div>
+          <div class="transcript-list" id="transcriptList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let subtitles = [];
+    let currentActiveIndex = -1;
+    let currentFolder = null;
+
+    const urlInput = document.getElementById('urlInput');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const progressEl = document.getElementById('progress');
+    const welcomeEl = document.getElementById('welcome');
+    const contentEl = document.getElementById('content');
+    const videoPlayer = document.getElementById('videoPlayer');
+    const transcriptList = document.getElementById('transcriptList');
+    const sidebarList = document.getElementById('sidebarList');
+    const sidebarEmpty = document.getElementById('sidebarEmpty');
+
+    // Listen for progress messages from main process
+    window.api.onDownloadProgress((message) => {
+      progressEl.classList.add('visible');
+
+      // Parse STEP:N:TOTAL:label or STEP:DONE
+      const stepMatch = message.match(/^STEP:(\d+):(\d+):(.+)$/);
+      const doneMatch = message.match(/^STEP:DONE$/);
+
+      if (stepMatch) {
+        const currentStep = parseInt(stepMatch[1]);
+        updatePipeline(currentStep);
+      } else if (doneMatch) {
+        updatePipeline(5); // all done
+      }
+    });
+
+    function updatePipeline(currentStep) {
+      const steps = document.querySelectorAll('.pipeline-step');
+      const arrows = document.querySelectorAll('.pipeline-arrow');
+
+      steps.forEach((el) => {
+        const step = parseInt(el.dataset.step);
+        const icon = el.querySelector('.step-icon');
+
+        el.classList.remove('active', 'done');
+        icon.className = 'step-icon';
+
+        if (step < currentStep) {
+          el.classList.add('done');
+          icon.innerHTML = '';
+          icon.classList.add('checkmark');
+        } else if (step === currentStep) {
+          el.classList.add('active');
+          icon.innerHTML = '<span class="spinner"></span>';
+        } else {
+          icon.innerHTML = '';
+        }
+      });
+
+      arrows.forEach((arrow, i) => {
+        arrow.classList.remove('done', 'active');
+        const afterStep = i + 1;
+        if (afterStep < currentStep) arrow.classList.add('done');
+        else if (afterStep === currentStep) arrow.classList.add('active');
+      });
+    }
+
+    function resetPipeline() {
+      const steps = document.querySelectorAll('.pipeline-step');
+      const arrows = document.querySelectorAll('.pipeline-arrow');
+      steps.forEach(el => {
+        el.classList.remove('active', 'done');
+        el.querySelector('.step-icon').className = 'step-icon';
+        el.querySelector('.step-icon').innerHTML = '';
+      });
+      arrows.forEach(a => a.classList.remove('done', 'active'));
+    }
+
+    // Enter key triggers download
+    urlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') startDownload();
+    });
+
+    // Load sidebar on startup
+    refreshSidebar();
+
+    async function refreshSidebar() {
+      const videos = await window.api.listDownloads();
+      sidebarList.innerHTML = '';
+
+      if (videos.length === 0) {
+        sidebarList.innerHTML = '<div class="sidebar-empty">No videos yet</div>';
+        return;
+      }
+
+      for (const video of videos) {
+        const item = document.createElement('div');
+        item.className = 'sidebar-item' + (video.folder === currentFolder ? ' active' : '');
+        item.innerHTML = `
+          <span class="sidebar-item-title">${escapeHtml(video.title)}</span>
+          <button class="sidebar-item-delete" title="Delete">&times;</button>
+        `;
+
+        item.querySelector('.sidebar-item-title').addEventListener('click', () => {
+          selectVideo(video);
+        });
+
+        item.querySelector('.sidebar-item-delete').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (confirm(`Delete "${video.title}"?`)) {
+            await window.api.deleteDownload(video.folder);
+            if (currentFolder === video.folder) {
+              currentFolder = null;
+              contentEl.classList.remove('visible');
+              welcomeEl.style.display = '';
+            }
+            refreshSidebar();
+          }
+        });
+
+        sidebarList.appendChild(item);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    async function selectVideo(video) {
+      currentFolder = video.folder;
+      refreshSidebar();
+      loadVideo(video.videoPath, video.srtPath);
+    }
+
+    async function startDownload() {
+      const url = urlInput.value.trim();
+      if (!url) return;
+
+      downloadBtn.disabled = true;
+      downloadBtn.textContent = 'Downloading...';
+      resetPipeline();
+      progressEl.classList.add('visible');
+
+      const result = await window.api.downloadVideo(url);
+
+      if (result.success) {
+        updatePipeline(5);
+        currentFolder = result.folder;
+        await refreshSidebar();
+        loadVideo(result.videoPath, result.srtPath);
+        setTimeout(() => progressEl.classList.remove('visible'), 2000);
+      } else {
+        resetPipeline();
+        progressEl.innerHTML = `<div style="color:#e94560">Error: ${escapeHtml(result.error)}</div>`;
+      }
+
+      downloadBtn.disabled = false;
+      downloadBtn.textContent = 'Download';
+    }
+
+    async function loadVideo(videoPath, srtPath) {
+      // Remove old listener
+      videoPlayer.removeEventListener('timeupdate', syncTranscript);
+
+      videoPlayer.src = `local-video://${videoPath}`;
+      videoPlayer.load();
+
+      try {
+        const srtText = await window.api.readFile(srtPath);
+        subtitles = parseSRT(srtText);
+        currentActiveIndex = -1;
+        renderTranscript();
+        welcomeEl.style.display = 'none';
+        contentEl.classList.add('visible');
+        progressEl.classList.remove('visible');
+
+        videoPlayer.addEventListener('timeupdate', syncTranscript);
+      } catch (err) {
+        console.error('Failed to load SRT:', err);
+        progressEl.textContent = 'Warning: Could not load subtitles.';
+        subtitles = [];
+        currentActiveIndex = -1;
+        renderTranscript();
+        welcomeEl.style.display = 'none';
+        contentEl.classList.add('visible');
+      }
+    }
+
+    function parseSRT(text) {
+      const entries = [];
+      const blocks = text.trim().split(/\n\s*\n/);
+
+      for (const block of blocks) {
+        const lines = block.trim().split('\n');
+        if (lines.length < 3) continue;
+
+        const timeMatch = lines[1].match(
+          /(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/
+        );
+        if (!timeMatch) continue;
+
+        const start = +timeMatch[1]*3600 + +timeMatch[2]*60 + +timeMatch[3] + +timeMatch[4]/1000;
+        const end = +timeMatch[5]*3600 + +timeMatch[6]*60 + +timeMatch[7] + +timeMatch[8]/1000;
+        const text = lines.slice(2).join(' ').replace(/<[^>]*>/g, '').trim();
+
+        if (text) {
+          entries.push({ start, end, text });
+        }
+      }
+
+      return entries;
+    }
+
+    function formatTime(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function renderTranscript() {
+      transcriptList.innerHTML = '';
+
+      subtitles.forEach((sub, i) => {
+        const entry = document.createElement('div');
+        entry.className = 'transcript-entry';
+        entry.dataset.index = i;
+        entry.innerHTML = `
+          <span class="transcript-time">${formatTime(sub.start)}</span>
+          <span class="transcript-text">${escapeHtml(sub.text)}</span>
+        `;
+
+        entry.addEventListener('click', () => {
+          videoPlayer.currentTime = sub.start;
+          videoPlayer.play();
+        });
+
+        transcriptList.appendChild(entry);
+      });
+    }
+
+    function syncTranscript() {
+      const time = videoPlayer.currentTime;
+
+      let activeIndex = -1;
+      for (let i = 0; i < subtitles.length; i++) {
+        if (time >= subtitles[i].start && time < subtitles[i].end) {
+          activeIndex = i;
+          break;
+        }
+      }
+
+      if (activeIndex === currentActiveIndex) return;
+      currentActiveIndex = activeIndex;
+
+      const prev = transcriptList.querySelector('.active');
+      if (prev) prev.classList.remove('active');
+
+      if (activeIndex >= 0) {
+        const entry = transcriptList.children[activeIndex];
+        if (entry) {
+          entry.classList.add('active');
+          entry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }
+  </script>
+</body>
+</html>
