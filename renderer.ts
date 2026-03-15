@@ -325,32 +325,49 @@ async function selectVideo(video: { folder: string; videoPath: string; srtPath: 
   sidebarView = 'cards';
   refreshSidebar();
   loadVideo(video.videoPath, video.srtPath);
+  loadMWEsForFolder(video.folder);
 }
 
+let isDownloading = false;
+
 async function startDownload(): Promise<void> {
+  // Cancel if already downloading
+  if (isDownloading) {
+    downloadBtn.disabled = true;
+    downloadBtn.textContent = 'Cancelling...';
+    await window.api.cancelDownload();
+    return;
+  }
+
   const url = urlInput.value.trim();
   if (!url) return;
 
-  downloadBtn.disabled = true;
-  downloadBtn.textContent = 'Downloading...';
+  isDownloading = true;
+  downloadBtn.textContent = 'Cancel';
   resetPipeline();
   progressEl.classList.add('visible');
 
   const result = await window.api.downloadVideo(url);
+
+  isDownloading = false;
+  downloadBtn.disabled = false;
 
   if (result.success) {
     updatePipeline(5);
     currentFolder = result.folder!;
     await refreshSidebar();
     loadVideo(result.videoPath!, result.srtPath!);
+    downloadBtn.textContent = 'Download';
     setTimeout(() => progressEl.classList.remove('visible'), 2000);
+  } else if (result.error === 'cancelled') {
+    resetPipeline();
+    progressEl.classList.remove('visible');
+    downloadBtn.textContent = 'Download';
   } else {
     resetPipeline();
     progressEl.innerHTML = `<div class="text-accent">Error: ${escapeHtml(result.error!)}</div>`;
+    downloadBtn.textContent = 'Download';
   }
-
-  downloadBtn.disabled = false;
-  downloadBtn.textContent = 'Download';
 }
 
 async function loadVideo(videoPath: string, srtPath: string): Promise<void> {
@@ -416,7 +433,7 @@ function renderTranscript(): void {
 
   subtitles.forEach((sub, i) => {
     const entry = document.createElement('div');
-    entry.className = 'transcript-entry flex gap-3 py-2 px-4 cursor-pointer transition-colors duration-150 border-l-[3px] border-l-transparent hover:bg-accent/10';
+    entry.className = 'transcript-entry flex gap-3 py-0.5 px-4 cursor-pointer transition-colors duration-150 border-l-[3px] border-l-transparent hover:bg-accent/10';
     entry.dataset.index = String(i);
     entry.innerHTML = `
       <span class="transcript-time text-xs text-accent font-mono whitespace-nowrap min-w-[80px] pt-0.5">${formatTime(sub.start)}</span>
@@ -656,6 +673,12 @@ document.addEventListener('mousemove', (e: MouseEvent) => {
     const newHeight = Math.min(Math.max(explainResizeStartHeight + delta, 100), maxHeight);
     explainPanel.style.height = `${newHeight}px`;
   }
+
+  if (isMWEResizing) {
+    const delta = mweResizeStartX - e.clientX; // inverted: dragging left = wider
+    const newWidth = Math.min(Math.max(mweResizeStartWidth + delta, 180), 500);
+    mwePanel.style.width = `${newWidth}px`;
+  }
 });
 
 document.addEventListener('mouseup', () => {
@@ -670,6 +693,10 @@ document.addEventListener('mouseup', () => {
   if (isExplainResizing) {
     isExplainResizing = false;
     explainResizeHandle.classList.remove('dragging');
+  }
+  if (isMWEResizing) {
+    isMWEResizing = false;
+    mweResizeHandle.classList.remove('dragging');
   }
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
@@ -759,8 +786,8 @@ transcriptList.addEventListener('mouseup', () => {
     currentSelectedText = selected;
     currentAnchorIndex = anchorIndex;
     currentSelectionContext = {
-      sentenceBefore: anchorIndex > 0 ? subtitles[anchorIndex - 1].text : '',
-      sentenceAfter: anchorIndex < subtitles.length - 1 ? subtitles[anchorIndex + 1].text : '',
+      sentenceBefore: subtitles.slice(Math.max(0, anchorIndex - 6), anchorIndex).map(s => s.text).join(' '),
+      sentenceAfter: subtitles.slice(anchorIndex + 1, Math.min(subtitles.length, anchorIndex + 7)).map(s => s.text).join(' '),
     };
 
     // Update sidebar panel
@@ -859,6 +886,200 @@ createCardBtn.addEventListener('click', async () => {
   // Refresh cards view if active
   if (sidebarView === 'cards') {
     renderCardsView(currentFolder, currentVideoTitle);
+  }
+});
+
+// --- MWE Panel ---
+
+const mwePanel = document.getElementById('mwePanel') as HTMLDivElement;
+const mweList = document.getElementById('mweList') as HTMLDivElement;
+const extractMWEsBtn = document.getElementById('extractMWEsBtn') as HTMLButtonElement;
+const mweProgress = document.getElementById('mweProgress') as HTMLDivElement;
+const mweProgressText = document.getElementById('mweProgressText') as HTMLSpanElement;
+const mweResizeHandle = document.getElementById('mweResizeHandle') as HTMLDivElement;
+
+let isMWEResizing = false;
+let mweResizeStartX = 0;
+let mweResizeStartWidth = 0;
+
+mweResizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
+  isMWEResizing = true;
+  mweResizeStartX = e.clientX;
+  mweResizeStartWidth = mwePanel.offsetWidth;
+  mweResizeHandle.classList.add('dragging');
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  e.preventDefault();
+});
+
+const MWE_CATEGORY_COLORS: Record<string, string> = {
+  perifrasis_verbal: 'bg-blue-800/60 text-blue-300',
+  verbo_soporte: 'bg-purple-800/60 text-purple-300',
+  locucion_verbal: 'bg-green-800/60 text-green-300',
+  locucion_adverbial: 'bg-yellow-800/60 text-yellow-300',
+  locucion_prepositiva: 'bg-orange-800/60 text-orange-300',
+  marcador_discursivo: 'bg-pink-800/60 text-pink-300',
+  mexicanismo: 'bg-red-800/60 text-red-300',
+  colocacion: 'bg-cyan-800/60 text-cyan-300',
+  expresion_fija: 'bg-indigo-800/60 text-indigo-300',
+  construccion_pronominal: 'bg-teal-800/60 text-teal-300',
+};
+
+function getCategoryLabel(cat: string): string {
+  return cat.replace(/_/g, ' ');
+}
+
+function renderMWEList(results: MWEResult[]): void {
+  mweList.innerHTML = '';
+
+  if (results.length === 0) {
+    mweList.innerHTML = '<div class="py-6 px-3 text-gray-600 text-[12px] text-center">No MWEs found in this transcript.</div>';
+    return;
+  }
+
+  // Group by category
+  const byCategory = new Map<string, MWEResult[]>();
+  for (const r of results) {
+    for (const cat of r.categories) {
+      if (!byCategory.has(cat)) byCategory.set(cat, []);
+      byCategory.get(cat)!.push(r);
+    }
+  }
+
+  // Deduplicate within categories by normalized_form
+  for (const [cat, items] of byCategory) {
+    const seen = new Set<string>();
+    byCategory.set(cat, items.filter(item => {
+      if (seen.has(item.normalized_form)) return false;
+      seen.add(item.normalized_form);
+      return true;
+    }));
+  }
+
+  // Sort categories by count
+  const sortedCategories = [...byCategory.entries()].sort((a, b) => b[1].length - a[1].length);
+
+  for (const [category, items] of sortedCategories) {
+    const colorClass = MWE_CATEGORY_COLORS[category] || 'bg-gray-700 text-gray-300';
+
+    const section = document.createElement('div');
+    section.className = 'mb-1';
+
+    const header = document.createElement('div');
+    header.className = 'py-1.5 px-3 text-[10px] uppercase tracking-wider text-gray-500 font-semibold flex items-center justify-between cursor-pointer hover:text-gray-400 transition-colors';
+    header.innerHTML = `
+      <span>${getCategoryLabel(category)}</span>
+      <span class="text-[9px] ${colorClass} rounded px-1.5 py-0.5">${items.length}</span>
+    `;
+
+    const itemsContainer = document.createElement('div');
+    itemsContainer.className = 'mwe-category-items';
+
+    header.addEventListener('click', () => {
+      itemsContainer.classList.toggle('hidden');
+      header.querySelector('span:first-child')!.textContent =
+        (itemsContainer.classList.contains('hidden') ? '▸ ' : '') + getCategoryLabel(category);
+    });
+
+    for (const item of items) {
+      const row = document.createElement('div');
+      row.className = 'py-1.5 px-3 hover:bg-accent/10 cursor-pointer transition-colors border-l-2 border-l-transparent hover:border-l-accent';
+      row.innerHTML = `
+        <div class="flex items-center gap-1.5">
+          <span class="text-[12px] text-gray-200 font-medium">${escapeHtml(item.normalized_form)}</span>
+          ${item.is_new ? '<span class="text-[8px] bg-green-800/60 text-green-300 rounded px-1 py-0.5 uppercase font-bold">new</span>' : ''}
+        </div>
+        ${item.surface_form !== item.normalized_form ? `<div class="text-[10px] text-gray-500 mt-0.5">${escapeHtml(item.surface_form)}</div>` : ''}
+        ${item.context_note ? `<div class="text-[10px] text-gray-600 mt-0.5 italic">${escapeHtml(item.context_note)}</div>` : ''}
+      `;
+
+      // Click to jump to that sentence in the transcript
+      row.addEventListener('click', () => {
+        if (item.sentence_index >= 0 && item.sentence_index < subtitles.length) {
+          videoPlayer.currentTime = subtitles[item.sentence_index].start;
+          const entry = transcriptList.children[item.sentence_index] as HTMLElement;
+          if (entry) entry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+
+      itemsContainer.appendChild(row);
+    }
+
+    section.appendChild(header);
+    section.appendChild(itemsContainer);
+    mweList.appendChild(section);
+  }
+
+  // Summary at top
+  const uniqueNormalized = new Set(results.map(r => r.normalized_form));
+  const newCount = new Set(results.filter(r => r.is_new).map(r => r.normalized_form)).size;
+  const summary = document.createElement('div');
+  summary.className = 'py-2 px-3 text-[11px] text-gray-500 border-b border-border-primary';
+  summary.textContent = `${uniqueNormalized.size} unique MWEs${newCount > 0 ? ` (${newCount} new)` : ''}`;
+  mweList.insertBefore(summary, mweList.firstChild);
+}
+
+// Load existing MWEs when a video is selected
+async function loadMWEsForFolder(folder: string): Promise<void> {
+  try {
+    const existing = await window.api.getMWEsForFolder(folder);
+    if (existing.length > 0) {
+      renderMWEList(existing);
+    } else {
+      mweList.innerHTML = '<div class="py-6 px-3 text-gray-600 text-[12px] text-center">Click "Extract" to find multiword expressions in this transcript.</div>';
+    }
+  } catch (err) {
+    console.error('Failed to load MWEs:', err);
+  }
+}
+
+// Progress listener
+window.api.onMWEProgress((progress: MWEProgress) => {
+  mweProgress.classList.remove('hidden');
+  if (progress.stage === 'extracting') {
+    mweProgressText.textContent = `Extracting... sentences ${progress.sentenceStart}–${progress.sentenceEnd} of ${progress.totalSentences}`;
+  } else if (progress.stage === 'normalizing') {
+    mweProgressText.textContent = `Normalizing... (${progress.current}/${progress.total})`;
+  } else if (progress.stage === 'storing') {
+    mweProgressText.textContent = 'Saving to database...';
+  }
+});
+
+// Extract button handler
+let isMWEExtracting = false;
+
+extractMWEsBtn.addEventListener('click', async () => {
+  // Cancel if already extracting
+  if (isMWEExtracting) {
+    extractMWEsBtn.disabled = true;
+    extractMWEsBtn.textContent = 'Cancelling...';
+    await window.api.cancelMWEExtraction();
+    return;
+  }
+
+  if (!currentFolder || subtitles.length === 0) return;
+
+  isMWEExtracting = true;
+  extractMWEsBtn.textContent = 'Cancel';
+  mweProgress.classList.remove('hidden');
+  mweProgressText.textContent = 'Starting extraction...';
+
+  const subsData = subtitles.map((s, i) => ({ index: i, text: s.text }));
+
+  const result = await window.api.extractMWEs({ folder: currentFolder, subtitles: subsData });
+
+  mweProgress.classList.add('hidden');
+  isMWEExtracting = false;
+  extractMWEsBtn.disabled = false;
+  extractMWEsBtn.textContent = 'Extract';
+
+  if (result.success && result.results) {
+    renderMWEList(result.results);
+  } else if (result.error === 'cancelled') {
+    // Load whatever was saved before cancellation, or show message
+    mweList.innerHTML = '<div class="py-4 px-3 text-gray-500 text-[12px] text-center">Extraction cancelled.</div>';
+  } else {
+    mweList.innerHTML = `<div class="py-4 px-3 text-accent text-[12px] text-center">Error: ${escapeHtml(result.error || 'Unknown error')}</div>`;
   }
 });
 

@@ -13,6 +13,6 @@
     "declaration": true,
     "sourceMap": true
   },
-  "include": ["main.ts", "preload.ts", "renderer.ts", "global.d.ts"],
+  "include": ["main.ts", "preload.ts", "renderer.ts", "global.d.ts", "mwe-prompts.ts", "mwe-pipeline.ts", "mwe-ipc.ts"],
   "exclude": ["node_modules", "dist", "scripts", ".next"]
 }

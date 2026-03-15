@@ -6,10 +6,12 @@ providing 3-5x speedup over PyTorch MPS for local model inference.
 
 Uses mlx-community/whisper-large-v3-turbo (MLX-native weights)
 with language set to Spanish for full Apple Silicon acceleration.
+
+Segments are post-processed to merge fragments into full sentences.
 """
+import re
 import time
 import mlx_whisper
-
 import os
 
 AUDIO_FILE = "video.mp3"
@@ -18,7 +20,6 @@ OUTPUT_SRT = os.path.join(OUTPUT_DIR, "video.srt")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# MLX-native converted model — runs directly on Apple Silicon GPU
 MODEL_ID = "mlx-community/whisper-large-v3-turbo"
 
 print("=" * 50)
@@ -50,6 +51,39 @@ def format_timestamp(seconds):
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
+def merge_segments_into_sentences(segments):
+    """Merge Whisper segments so each SRT entry is a full sentence."""
+    if not segments:
+        return segments
+
+    sentence_end = re.compile(r'[.!?…]\s*$')
+    merged = []
+    buf_text = ""
+    buf_start = None
+    buf_end = None
+
+    for seg in segments:
+        text = seg["text"].strip()
+        if not text:
+            continue
+
+        if buf_start is None:
+            buf_start = seg["start"]
+
+        buf_text = (buf_text + " " + text).strip() if buf_text else text
+        buf_end = seg["end"]
+
+        if sentence_end.search(buf_text):
+            merged.append({"start": buf_start, "end": buf_end, "text": buf_text})
+            buf_text = ""
+            buf_start = None
+
+    if buf_text and buf_start is not None:
+        merged.append({"start": buf_start, "end": buf_end, "text": buf_text})
+
+    return merged
+
+
 print("Writing SRT...")
 with open(OUTPUT_SRT, "w", encoding="utf-8") as f:
     segments = result.get("segments", [])
@@ -57,14 +91,12 @@ with open(OUTPUT_SRT, "w", encoding="utf-8") as f:
         f.write("1\n00:00:00,000 --> 00:00:00,000\n")
         f.write(result["text"].strip() + "\n")
     else:
-        for i, seg in enumerate(segments, 1):
-            start = seg["start"]
-            end = seg["end"]
-            text = seg["text"].strip()
+        merged = merge_segments_into_sentences(segments)
+        for i, seg in enumerate(merged, 1):
             f.write(f"{i}\n")
-            f.write(f"{format_timestamp(start)} --> {format_timestamp(end)}\n")
-            f.write(f"{text}\n\n")
+            f.write(f"{format_timestamp(seg['start'])} --> {format_timestamp(seg['end'])}\n")
+            f.write(f"{seg['text']}\n\n")
 
 print(f"\nDone! SRT saved to {OUTPUT_SRT}")
-print(f"Total segments: {len(result.get('segments', []))}")
+print(f"Total segments: {len(result.get('segments', []))} -> {len(merge_segments_into_sentences(result.get('segments', [])))} merged sentences")
 print(f"Total time: {elapsed:.1f}s")

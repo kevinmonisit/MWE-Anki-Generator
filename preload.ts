@@ -5,6 +5,32 @@ export interface UserSettings {
   chunkingDeck: string;
 }
 
+export interface MWEResult {
+  normalized_form: string;
+  surface_form: string;
+  categories: string[];
+  context_note: string;
+  sentence_text: string;
+  sentence_index: number;
+  is_new: boolean;
+}
+
+export interface MWEType {
+  normalized_form: string;
+  categories: string[];
+  context_note: string;
+  frequency: number;
+}
+
+export interface MWEProgress {
+  stage: 'extracting' | 'normalizing' | 'storing';
+  current?: number;
+  total?: number;
+  sentenceStart?: number;
+  sentenceEnd?: number;
+  totalSentences?: number;
+}
+
 export interface ElectronAPI {
   downloadVideo: (url: string) => Promise<{ success: boolean; videoPath?: string; srtPath?: string; folder?: string; error?: string }>;
   onDownloadProgress: (callback: (message: string) => void) => void;
@@ -25,6 +51,12 @@ export interface ElectronAPI {
     chunkingDeckName: string;
     videoTitle: string;
   }) => Promise<{ results: { cardId: string; success: boolean; error?: string }[] }>;
+  cancelDownload: () => Promise<void>;
+  extractMWEs: (params: { folder: string; subtitles: { index: number; text: string }[] }) => Promise<{ success: boolean; results?: MWEResult[]; error?: string }>;
+  cancelMWEExtraction: () => Promise<void>;
+  onMWEProgress: (callback: (progress: MWEProgress) => void) => void;
+  getMWEsForFolder: (folder: string) => Promise<MWEResult[]>;
+  getAllMWETypes: () => Promise<MWEType[]>;
 }
 
 contextBridge.exposeInMainWorld('api', {
@@ -49,4 +81,12 @@ contextBridge.exposeInMainWorld('api', {
     chunkingDeckName: string;
     videoTitle: string;
   }) => ipcRenderer.invoke('export-cards-to-anki', params),
+  cancelDownload: () => ipcRenderer.invoke('cancel-download'),
+  extractMWEs: (params: { folder: string; subtitles: { index: number; text: string }[] }) => ipcRenderer.invoke('extract-mwes', params),
+  cancelMWEExtraction: () => ipcRenderer.invoke('cancel-mwe-extraction'),
+  onMWEProgress: (callback: (progress: MWEProgress) => void) => {
+    ipcRenderer.on('extract-mwes-progress', (_event, progress: MWEProgress) => callback(progress));
+  },
+  getMWEsForFolder: (folder: string) => ipcRenderer.invoke('get-mwes-for-folder', folder),
+  getAllMWETypes: () => ipcRenderer.invoke('get-all-mwe-types'),
 } satisfies ElectronAPI);

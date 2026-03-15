@@ -1,9 +1,12 @@
 import { app, BrowserWindow, ipcMain, net } from 'electron';
 import path from 'path';
-import { spawn, execFile } from 'child_process';
+import { spawn, execFile, ChildProcess } from 'child_process';
 import fs from 'fs';
+import { registerMWEHandlers } from './mwe-ipc';
 
 let mainWindow: BrowserWindow | null = null;
+let activeDownloadProc: ChildProcess | null = null;
+let downloadWasCancelled = false;
 const DOWNLOADS_DIR = path.join(app.getPath('userData'), 'downloads');
 const SETTINGS_DIR = path.join(app.getPath('userData'), 'settings');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'user-settings.json');
@@ -129,6 +132,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   createWindow();
+  registerMWEHandlers(() => mainWindow, () => OPENAI_API_KEY);
 });
 
 app.on('window-all-closed', () => {
@@ -158,9 +162,12 @@ ipcMain.handle('download-video', async (_event, url: string): Promise<DownloadRe
   return new Promise((resolve) => {
     const scriptPath = path.join(__dirname, '..', 'scripts', 'download.py');
 
-    const proc = spawn('python3', [scriptPath, url, DOWNLOADS_DIR], {
+    const venvPython = path.join(__dirname, '..', '.venv', 'bin', 'python3');
+    const proc = spawn(venvPython, [scriptPath, url, DOWNLOADS_DIR], {
       cwd: path.join(__dirname, '..'),
     });
+    activeDownloadProc = proc;
+    downloadWasCancelled = false;
 
     let stdout = '';
     let stderr = '';
@@ -182,6 +189,20 @@ ipcMain.handle('download-video', async (_event, url: string): Promise<DownloadRe
     });
 
     proc.on('close', (code: number | null) => {
+      activeDownloadProc = null;
+
+      if (downloadWasCancelled) {
+        // Clean up partial download folder
+        const folderMatch = stdout.match(/FOLDER:(.+)/);
+        const folderName = folderMatch ? folderMatch[1].trim() : null;
+        if (folderName) {
+          const videoDir = path.join(DOWNLOADS_DIR, folderName);
+          try { fs.rmSync(videoDir, { recursive: true }); } catch { /* ignore */ }
+        }
+        resolve({ success: false, error: 'cancelled' });
+        return;
+      }
+
       if (code === 0) {
         const folderMatch = stdout.match(/FOLDER:(.+)/);
         const folderName = folderMatch ? folderMatch[1].trim() : null;
@@ -206,9 +227,19 @@ ipcMain.handle('download-video', async (_event, url: string): Promise<DownloadRe
     });
 
     proc.on('error', (err: Error) => {
+      activeDownloadProc = null;
       resolve({ success: false, error: err.message });
     });
+
   });
+});
+
+// IPC: Cancel active download
+ipcMain.handle('cancel-download', async () => {
+  if (activeDownloadProc && !activeDownloadProc.killed) {
+    downloadWasCancelled = true;
+    activeDownloadProc.kill();
+  }
 });
 
 // IPC: List all downloaded videos
@@ -277,10 +308,10 @@ ipcMain.handle('openai-explain', async (_event, params: ExplainParams) => {
 
 It appears in this sentence: "${fullSentence}"
 
-Surrounding context:
-Previous line: "${sentenceBefore}"
+Surrounding context (6 sentences before and after):
+Before: "${sentenceBefore}"
 Current line: "${fullSentence}"
-Next line: "${sentenceAfter}"
+After: "${sentenceAfter}"
 
 Respond with a JSON object (no markdown, no code fences) with exactly two fields:
 - "explanation": Respond concisely in no more than 100 words. The specified word(s)/phrases MUST be in their original Spanish. All other explanation text MUST be in English. Use Mexican Spanish. Write an explanation that helps someone understand the word, phrase, or idiom and how it is used in this context, as though you're explaining it to a friend. Use the surrounding context to clarify how the phrase is being used in this specific moment. DO NOT output the word 'nuance'. DO NOT use complicated words. Explain the essence of the word in its context to an intermediate to advanced Spanish learner. DO NOT avoid direct explanations for tricky or slang meanings; explain them as they are. DO NOT overcomplicate with grammar jargon; keep it natural and simple. Conclude with the specific meaning within the context sentence.
@@ -298,7 +329,7 @@ Example format: {"explanation":"...","translation":"..."}`;
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 300,
         temperature: 0.3,
@@ -410,8 +441,7 @@ async function ankiRequest(action: string, params?: Record<string, unknown>): Pr
 }
 
 const CARD_FRONT = '<div class="audio-wrap">{{Audio}}</div>';
-const CARD_BACK = `<div class="image-wrap">{{Image}}</div>
-<div class="audio-wrap">{{Audio}}</div>
+const CARD_BACK = `<div class="audio-wrap">{{Audio}}</div>
 <div class="sentence">{{Sentence}}</div>
 <hr id="answer">
 <div class="phrase">"{{Phrase}}"</div>
@@ -426,7 +456,8 @@ const CARD_BACK = `<div class="image-wrap">{{Image}}</div>
 {{#Translation}}<div class="trans-section">
 <button class="trans-toggle-btn" onclick="var d=document.getElementById('tr');d.style.display=d.style.display==='none'?'block':'none';this.textContent=d.style.display==='none'?'▶ Show Translation':'▼ Hide Translation'">▶ Show Translation</button>
 <div id="tr" class="trans-text" style="display:none">{{Translation}}</div>
-</div>{{/Translation}}`;
+</div>{{/Translation}}
+<div class="image-wrap">{{Image}}</div>`;
 
 // Cloze model for chunking cards
 const CLOZE_MODEL_NAME = 'Spanish Chunking Cloze';

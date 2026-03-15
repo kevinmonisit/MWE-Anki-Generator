@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Download a YouTube video (mp4), extract audio (mp3), and transcribe
-with Whisper (MLX) to generate an SRT file.
+with MLX Whisper (Apple Silicon GPU) to generate an SRT file.
+
+Segments are post-processed to merge fragments into full sentences.
 
 Usage:
     python3 download.py <youtube_url> <output_dir>
@@ -29,11 +31,8 @@ MODEL_ID = "mlx-community/whisper-large-v3-turbo"
 
 def sanitize_filename(name: str, url: str) -> str:
     """Create a short, filesystem-safe folder name."""
-    # Use a short hash of the URL for uniqueness
     url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
-    # Keep only safe ASCII chars from title
     safe = re.sub(r'[^a-zA-Z0-9 _-]', '', name).strip()
-    # Truncate to keep paths short
     safe = safe[:40].rstrip()
     if not safe:
         safe = 'video'
@@ -55,6 +54,39 @@ def format_timestamp(seconds):
     s = int(seconds % 60)
     ms = int((seconds % 1) * 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def merge_segments_into_sentences(segments):
+    """Merge Whisper segments so each SRT entry is a full sentence."""
+    if not segments:
+        return segments
+
+    sentence_end = re.compile(r'[.!?…]\s*$')
+    merged = []
+    buf_text = ""
+    buf_start = None
+    buf_end = None
+
+    for seg in segments:
+        text = seg["text"].strip()
+        if not text:
+            continue
+
+        if buf_start is None:
+            buf_start = seg["start"]
+
+        buf_text = (buf_text + " " + text).strip() if buf_text else text
+        buf_end = seg["end"]
+
+        if sentence_end.search(buf_text):
+            merged.append({"start": buf_start, "end": buf_end, "text": buf_text})
+            buf_text = ""
+            buf_start = None
+
+    if buf_text and buf_start is not None:
+        merged.append({"start": buf_start, "end": buf_end, "text": buf_text})
+
+    return merged
 
 
 def transcribe_audio(mp3_path: str, srt_path: str):
@@ -80,15 +112,15 @@ def transcribe_audio(mp3_path: str, srt_path: str):
             f.write("1\n00:00:00,000 --> 00:00:00,000\n")
             f.write(result["text"].strip() + "\n")
         else:
-            for i, seg in enumerate(segments, 1):
-                start = seg["start"]
-                end = seg["end"]
-                text = seg["text"].strip()
+            merged = merge_segments_into_sentences(segments)
+            for i, seg in enumerate(merged, 1):
                 f.write(f"{i}\n")
-                f.write(f"{format_timestamp(start)} --> {format_timestamp(end)}\n")
-                f.write(f"{text}\n\n")
+                f.write(f"{format_timestamp(seg['start'])} --> {format_timestamp(seg['end'])}\n")
+                f.write(f"{seg['text']}\n\n")
 
-    print(f"SRT saved: {srt_path} ({len(result.get('segments', []))} segments)")
+    raw_count = len(result.get("segments", []))
+    merged_count = len(merge_segments_into_sentences(result.get("segments", [])))
+    print(f"SRT saved: {srt_path} ({raw_count} segments -> {merged_count} merged sentences)")
 
 
 def download(url: str, output_dir: str):
@@ -111,7 +143,6 @@ def download(url: str, output_dir: str):
     for f in [video_path, mp3_path, srt_path]:
         if os.path.exists(f):
             os.remove(f)
-    # Clean up any leftover .part files from interrupted downloads
     if os.path.isdir(video_dir):
         for f in os.listdir(video_dir):
             if f.endswith('.part'):

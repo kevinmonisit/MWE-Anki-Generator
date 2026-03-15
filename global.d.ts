@@ -15,6 +15,32 @@ interface Card {
   chunking?: boolean;
 }
 
+interface MWEResult {
+  normalized_form: string;
+  surface_form: string;
+  categories: string[];
+  context_note: string;
+  sentence_text: string;
+  sentence_index: number;
+  is_new: boolean;
+}
+
+interface MWEType {
+  normalized_form: string;
+  categories: string[];
+  context_note: string;
+  frequency: number;
+}
+
+interface MWEProgress {
+  stage: 'extracting' | 'normalizing' | 'storing';
+  current?: number;
+  total?: number;
+  sentenceStart?: number;
+  sentenceEnd?: number;
+  totalSentences?: number;
+}
+
 interface ElectronAPI {
   downloadVideo: (url: string) => Promise<{
     success: boolean;
@@ -48,6 +74,12 @@ interface ElectronAPI {
     chunkingDeckName: string;
     videoTitle: string;
   }) => Promise<{ results: { cardId: string; success: boolean; error?: string }[] }>;
+  cancelDownload: () => Promise<void>;
+  extractMWEs: (params: { folder: string; subtitles: { index: number; text: string }[] }) => Promise<{ success: boolean; results?: MWEResult[]; error?: string }>;
+  cancelMWEExtraction: () => Promise<void>;
+  onMWEProgress: (callback: (progress: MWEProgress) => void) => void;
+  getMWEsForFolder: (folder: string) => Promise<MWEResult[]>;
+  getAllMWETypes: () => Promise<MWEType[]>;
 }
 
 interface Window {
