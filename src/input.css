@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Spinner animation */
+@keyframes spin-fast {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid transparent;
+  border-top-color: #e94560;
+  border-radius: 50%;
+  animation: spin-fast 0.8s linear infinite;
+}
+
+/* Checkmark pseudo-element */
+.checkmark::before {
+  content: "\2713";
+  font-weight: bold;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #1a1a2e; }
+::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #e94560; }
+
+/* JS-toggled state classes — placed after @tailwind utilities so they win the cascade */
+
+/* Progress pipeline */
+.pipeline-step.active {
+  background-color: rgba(233, 69, 96, 0.2);
+  color: #e94560;
+  box-shadow: 0 0 8px rgba(233, 69, 96, 0.15);
+}
+.pipeline-step.done {
+  background-color: rgba(46, 213, 115, 0.15);
+  color: #2ed573;
+}
+.pipeline-arrow.done { color: #2ed573; }
+.pipeline-arrow.active { color: #e94560; }
+
+/* Visibility toggles */
+.progress-bar.visible { display: block; }
+.content-area.visible { display: flex !important; }
+.anki-decks-dropdown.visible { display: block; }
+
+/* Sidebar items */
+.sidebar-item.active {
+  background-color: rgba(233, 69, 96, 0.15);
+  border-left-color: #e94560 !important;
+}
+.sidebar-item.active .sidebar-item-title { color: #fff; }
+
+/* Transcript entries — !important to override border-l-transparent utility */
+.transcript-entry.active {
+  background-color: rgba(233, 69, 96, 0.15) !important;
+  border-left-color: #e94560 !important;
+}
+.transcript-entry.active .transcript-text {
+  color: #fff;
+  font-weight: 500;
+}
+
+/* Resize handles */
+.video-resize-handle.dragging,
+.sidebar-resize-handle.dragging,
+.explain-resize-handle.dragging { background-color: #e94560; }
+
+/* Anki status */
+.anki-dot.connected { background-color: #2ed573; }
+.anki-dot.disconnected { background-color: #e94560; }

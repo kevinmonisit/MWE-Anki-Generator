@@ -19,6 +19,7 @@
 
 # production
 /build
+/dist
 
 # misc
 .DS_Store
@@ -54,6 +55,7 @@ public/transcript.srt
 # Output folder contents (keep the folder itself via .gitkeep)
 output/*
 !output/.gitkeep
+downloads/*
 
 # Legacy locations (pre-restructure)
 *.apkg
