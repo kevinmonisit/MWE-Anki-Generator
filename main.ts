@@ -380,7 +380,7 @@ const ANKI_MODEL_CSS = `
   margin-bottom: 12px;
 }
 .audio-wrap { margin-bottom: 10px; }
-.sentence { font-size: 22px; color: #cdd6f4; margin: 12px 0; line-height: 1.5; }
+.sentence { font-size: 22px; color: #ffffff; margin: 12px 0; line-height: 1.5; }
 hr#answer { border: none; border-top: 2px solid #e8b931; margin: 16px auto; width: 60%; }
 .phrase { font-size: 20px; font-weight: bold; color: #fab387; margin: 10px 0 6px; }
 .translation { font-size: 17px; color: #89dceb; font-style: italic; margin: 8px 0 4px; }
@@ -396,6 +396,7 @@ hr#answer { border: none; border-top: 2px solid #e8b931; margin: 16px auto; widt
 .trans-toggle-btn { background: none; border: 1px solid #45475a; color: #6c7086; font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; margin-bottom: 6px; }
 .trans-toggle-btn:hover { border-color: #89dceb; color: #89dceb; }
 .trans-text { font-size: 15px; color: #89dceb; font-style: italic; line-height: 1.5; }
+.cloze { font-weight: bold; color: #5b9dff; }
 `;
 
 async function ankiRequest(action: string, params?: Record<string, unknown>): Promise<{ result: unknown; error: string | null }> {
@@ -467,7 +468,7 @@ async function ensureClozeModel(): Promise<void> {
 async function getClozeHint(selectedText: string, fullSentence: string, translation: string): Promise<string> {
   if (!OPENAI_API_KEY) return translation || 'hint';
 
-  const prompt = `Give me a 2-5 word natural, colloquial English hint for the Spanish phrase "${selectedText}" as used in the sentence "${fullSentence}". The full sentence translates to: "${translation}". Just respond with the short hint, nothing else. Make it the most natural English a native speaker would use in conversation.`;
+  const prompt = `Give me a 1-3 word English translation for the Spanish word/phrase "${selectedText}" as used in "${fullSentence}". The full sentence translates to: "${translation}". Respond with ONLY the short English equivalent, nothing else. Use the most natural, succinct word a native English speaker would use. For example: "apostando" → "betting", "castigo" → "punishment", "ponerse" → "to put on". Keep it as short as possible — ideally one word.`;
 
   try {
     const response = await net.fetch('https://api.openai.com/v1/chat/completions', {
