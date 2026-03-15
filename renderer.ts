@@ -433,11 +433,11 @@ function renderTranscript(): void {
 
   subtitles.forEach((sub, i) => {
     const entry = document.createElement('div');
-    entry.className = 'transcript-entry flex gap-3 py-0.5 px-4 cursor-pointer transition-colors duration-150 border-l-[3px] border-l-transparent hover:bg-accent/10';
+    entry.className = 'transcript-entry flex gap-3 py-1.5 px-4 cursor-pointer transition-colors duration-150 border-l-[3px] border-l-transparent hover:bg-accent/10';
     entry.dataset.index = String(i);
     entry.innerHTML = `
-      <span class="transcript-time text-xs text-accent font-mono whitespace-nowrap min-w-[80px] pt-0.5">${formatTime(sub.start)}</span>
-      <span class="transcript-text text-sm leading-normal text-gray-300">${escapeHtml(sub.text)}</span>
+      <span class="transcript-time text-xs text-accent font-mono whitespace-nowrap min-w-[80px] pt-1">${formatTime(sub.start)}</span>
+      <span class="transcript-text text-base leading-relaxed text-gray-300">${escapeHtml(sub.text)}</span>
     `;
 
     entry.addEventListener('click', () => {
