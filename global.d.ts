@@ -1,3 +1,20 @@
+interface Card {
+  id: string;
+  expression: string;
+  meaning: string;
+  translation: string;
+  targetLineBefore: string;
+  targetLineAfter: string;
+  selectedText: string;
+  time: string;
+  source: string;
+  startTime: number;
+  endTime: number;
+  createdAt: number;
+  exported?: boolean;
+  chunking?: boolean;
+}
+
 interface ElectronAPI {
   downloadVideo: (url: string) => Promise<{
     success: boolean;
@@ -22,10 +39,13 @@ interface ElectronAPI {
   getDownloadPath: (folder: string) => Promise<string>;
   loadSettings: () => Promise<{ selectedDeck: string; chunkingDeck: string }>;
   saveSettings: (settings: { selectedDeck: string; chunkingDeck: string }) => Promise<{ success: boolean }>;
+  loadCards: (folder: string) => Promise<Card[]>;
+  saveCards: (folder: string, cards: Card[]) => Promise<{ success: boolean }>;
   exportCardsToAnki: (params: {
     videoDir: string;
-    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number }[];
+    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number; chunking?: boolean }[];
     deckName: string;
+    chunkingDeckName: string;
     videoTitle: string;
   }) => Promise<{ results: { cardId: string; success: boolean; error?: string }[] }>;
 }

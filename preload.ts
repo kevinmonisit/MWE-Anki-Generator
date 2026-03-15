@@ -16,10 +16,13 @@ export interface ElectronAPI {
   getDownloadPath: (folder: string) => Promise<string>;
   loadSettings: () => Promise<UserSettings>;
   saveSettings: (settings: UserSettings) => Promise<{ success: boolean }>;
+  loadCards: (folder: string) => Promise<Card[]>;
+  saveCards: (folder: string, cards: Card[]) => Promise<{ success: boolean }>;
   exportCardsToAnki: (params: {
     videoDir: string;
-    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number }[];
+    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number; chunking?: boolean }[];
     deckName: string;
+    chunkingDeckName: string;
     videoTitle: string;
   }) => Promise<{ results: { cardId: string; success: boolean; error?: string }[] }>;
 }
@@ -37,10 +40,13 @@ contextBridge.exposeInMainWorld('api', {
   getDownloadPath: (folder: string) => ipcRenderer.invoke('get-download-path', folder),
   loadSettings: () => ipcRenderer.invoke('load-settings'),
   saveSettings: (settings: { selectedDeck: string; chunkingDeck: string }) => ipcRenderer.invoke('save-settings', settings),
+  loadCards: (folder: string) => ipcRenderer.invoke('load-cards', folder),
+  saveCards: (folder: string, cards: Card[]) => ipcRenderer.invoke('save-cards', folder, cards),
   exportCardsToAnki: (params: {
     videoDir: string;
-    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number }[];
+    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number; chunking?: boolean }[];
     deckName: string;
+    chunkingDeckName: string;
     videoTitle: string;
   }) => ipcRenderer.invoke('export-cards-to-anki', params),
 } satisfies ElectronAPI);

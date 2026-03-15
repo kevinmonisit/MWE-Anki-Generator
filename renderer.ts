@@ -9,22 +9,6 @@ interface AnkiConnectResponse {
   error: string | null;
 }
 
-interface Card {
-  id: string;
-  expression: string;        // subs2srs "Target: line" — full Spanish subtitle sentence
-  meaning: string;           // subs2srs "Base: line" — English explanation
-  translation: string;       // direct English translation of the selected phrase
-  targetLineBefore: string;  // subs2srs "Target: line before"
-  targetLineAfter: string;   // subs2srs "Target: line after"
-  selectedText: string;      // highlighted text for display emphasis
-  time: string;              // subs2srs "Time" — subtitle timestamp
-  source: string;            // subs2srs "Source" — video title
-  startTime: number;         // subtitle start in seconds (for clip playback)
-  endTime: number;           // subtitle end in seconds (for clip playback)
-  createdAt: number;
-  exported?: boolean;        // true if successfully exported to Anki
-}
-
 let subtitles: Subtitle[] = [];
 let currentActiveIndex = -1;
 let currentFolder: string | null = null;
@@ -36,15 +20,12 @@ let ankiDecks: string[] = [];
 let selectedAnkiDeck = '';
 let selectedChunkingDeck = '';
 
-function loadCards(folder: string): Card[] {
-  try {
-    const data = localStorage.getItem(`cards-${folder}`);
-    return data ? JSON.parse(data) : [];
-  } catch { return []; }
+async function loadCards(folder: string): Promise<Card[]> {
+  return window.api.loadCards(folder);
 }
 
-function saveCards(folder: string, cards: Card[]): void {
-  localStorage.setItem(`cards-${folder}`, JSON.stringify(cards));
+async function saveCards(folder: string, cards: Card[]): Promise<void> {
+  await window.api.saveCards(folder, cards);
 }
 
 const urlInput = document.getElementById('urlInput') as HTMLInputElement;
@@ -184,7 +165,7 @@ async function refreshSidebar(): Promise<void> {
   }
 }
 
-function renderCardsView(folder: string, title: string): void {
+async function renderCardsView(folder: string, title: string): Promise<void> {
   // Update header with Go Back button + video title only
   sidebarHeader.innerHTML = `
     <button id="goBackBtn" class="bg-transparent border-none text-gray-400 cursor-pointer text-sm hover:text-accent transition-colors shrink-0" title="Go back">&larr;</button>
@@ -198,7 +179,7 @@ function renderCardsView(folder: string, title: string): void {
     refreshSidebar();
   });
 
-  const cards = loadCards(folder);
+  const cards = await loadCards(folder);
   const unexported = cards.filter(c => !c.exported);
   const canExport = ankiConnected && !!selectedAnkiDeck && unexported.length > 0;
 
@@ -230,26 +211,61 @@ function renderCardsView(folder: string, title: string): void {
     return;
   }
 
+  const chunkingEnabled = !!selectedChunkingDeck;
+
+  // Table header
+  const headerRow = document.createElement('div');
+  headerRow.className = 'flex items-center px-4 py-1 border-b border-border-primary';
+  headerRow.innerHTML = `
+    <span class="w-8 shrink-0 text-center text-[8px] uppercase tracking-wider text-gray-700 font-medium">C</span>
+    <span class="w-px h-3 bg-border-primary mx-4 shrink-0"></span>
+    <span class="flex-1 min-w-0 text-[8px] uppercase tracking-wider text-gray-700 font-medium">Card</span>
+  `;
+  sidebarList.appendChild(headerRow);
+
   for (const card of cards) {
+    const isExported = !!card.exported;
     const item = document.createElement('div');
-    item.className = 'group py-2.5 px-4 cursor-pointer transition-colors duration-150 border-l-[3px] border-l-transparent flex items-center gap-2 hover:bg-accent/10';
+    item.className = 'group py-2 px-4 cursor-pointer transition-colors duration-150 flex items-center hover:bg-accent/10'
+      + (isExported ? ' bg-green-900/20 border-l-[3px] border-l-green-500/60' : ' border-l-[3px] border-l-transparent');
     item.innerHTML = `
-      ${card.exported ? '<span class="text-green-500 text-sm shrink-0" title="Exported to Anki">&#10003;</span>' : ''}
+      <label class="w-8 shrink-0 flex items-center justify-center cursor-pointer" title="${!chunkingEnabled ? 'Select a chunking deck to enable' : isExported ? 'Already exported' : 'Send cloze card to chunking deck'}">
+        <input type="checkbox" class="chunking-cb accent-yellow-500 w-3 h-3 cursor-pointer" ${card.chunking ? 'checked' : ''} ${(!chunkingEnabled || isExported) ? 'disabled' : ''}>
+      </label>
+      <span class="w-px self-stretch bg-border-primary mx-4 shrink-0"></span>
       <div class="flex-1 min-w-0">
-        <div class="text-[13px] text-gray-300 font-medium overflow-hidden text-ellipsis whitespace-nowrap">${escapeHtml(card.selectedText)}</div>
+        <div class="text-[13px] font-medium overflow-hidden text-ellipsis whitespace-nowrap ${isExported ? 'text-green-400' : 'text-gray-300'}">${escapeHtml(card.selectedText)}</div>
         <div class="text-[11px] text-gray-600 overflow-hidden text-ellipsis whitespace-nowrap mt-0.5">${escapeHtml(card.expression)}</div>
       </div>
-      <button class="opacity-0 group-hover:opacity-100 bg-transparent border-none text-gray-500 text-base cursor-pointer py-0.5 px-1.5 rounded transition-all duration-150 hover:text-accent shrink-0" title="Delete card">&times;</button>
+      <button class="opacity-0 group-hover:opacity-100 bg-transparent border-none text-gray-500 text-base cursor-pointer py-0.5 px-1.5 rounded transition-all duration-150 hover:text-accent w-6 shrink-0" title="Delete card">&times;</button>
     `;
+
+    // Chunking checkbox toggle
+    const cb = item.querySelector('.chunking-cb') as HTMLInputElement;
+    cb.addEventListener('change', async (e: Event) => {
+      e.stopPropagation();
+      const allCards = await loadCards(folder);
+      const target = allCards.find(c => c.id === card.id);
+      if (target) {
+        target.chunking = cb.checked;
+        await saveCards(folder, allCards);
+        renderCardsView(folder, title);
+      }
+    });
+
+    // Prevent checkbox click from opening modal
+    (item.querySelector('label') as HTMLElement).addEventListener('click', (e: Event) => {
+      e.stopPropagation();
+    });
 
     item.querySelector('div.flex-1')!.addEventListener('click', () => {
       openCardModal(card);
     });
 
-    (item.querySelector('button') as HTMLElement).addEventListener('click', (e: Event) => {
+    (item.querySelector('button') as HTMLElement).addEventListener('click', async (e: Event) => {
       e.stopPropagation();
-      const updatedCards = loadCards(folder).filter(c => c.id !== card.id);
-      saveCards(folder, updatedCards);
+      const updatedCards = (await loadCards(folder)).filter(c => c.id !== card.id);
+      await saveCards(folder, updatedCards);
       renderCardsView(folder, title);
     });
 
@@ -258,7 +274,7 @@ function renderCardsView(folder: string, title: string): void {
 }
 
 async function exportCards(folder: string, title: string): Promise<void> {
-  const cards = loadCards(folder);
+  const cards = await loadCards(folder);
   const unexported = cards.filter(c => !c.exported);
 
   if (unexported.length === 0 || !selectedAnkiDeck || !currentFolder) return;
@@ -274,18 +290,19 @@ async function exportCards(folder: string, title: string): Promise<void> {
     videoDir,
     cards: unexported,
     deckName: selectedAnkiDeck,
+    chunkingDeckName: selectedChunkingDeck,
     videoTitle: title,
   });
 
   // Mark successfully exported cards
-  const allCards = loadCards(folder);
+  const allCards = await loadCards(folder);
   for (const r of result.results) {
     if (r.success) {
       const card = allCards.find(c => c.id === r.cardId);
       if (card) card.exported = true;
     }
   }
-  saveCards(folder, allCards);
+  await saveCards(folder, allCards);
 
   const successCount = result.results.filter(r => r.success).length;
   exportBtn.textContent = `${successCount}/${unexported.length} exported`;
@@ -545,6 +562,10 @@ ankiDeckSelect.addEventListener('change', () => {
 ankiChunkingDeckSelect.addEventListener('change', () => {
   selectedChunkingDeck = ankiChunkingDeckSelect.value;
   persistDeckSettings();
+  // Refresh cards view so chunking checkboxes update enabled/disabled state
+  if (sidebarView === 'cards' && currentFolder) {
+    renderCardsView(currentFolder, currentVideoTitle);
+  }
 });
 
 // Check Anki on startup and poll every 5 seconds
@@ -684,10 +705,50 @@ function hideSelectionPopup(): void {
   selectionPopup.classList.add('hidden');
 }
 
+/**
+ * Expand a selection so it snaps to whole-word boundaries.
+ * A "word" here includes any adjacent punctuation (e.g. "¿Qué?" stays as one unit).
+ */
+function expandSelectionToWords(selection: Selection): void {
+  if (!selection.rangeCount) return;
+
+  const range = selection.getRangeAt(0);
+
+  // Expand start to word boundary
+  const startNode = range.startContainer;
+  if (startNode.nodeType === Node.TEXT_NODE) {
+    const text = startNode.textContent || '';
+    let offset = range.startOffset;
+    // Move backward past word chars and punctuation (skip spaces)
+    while (offset > 0 && text[offset - 1] !== ' ') {
+      offset--;
+    }
+    range.setStart(startNode, offset);
+  }
+
+  // Expand end to word boundary
+  const endNode = range.endContainer;
+  if (endNode.nodeType === Node.TEXT_NODE) {
+    const text = endNode.textContent || '';
+    let offset = range.endOffset;
+    // Move forward past word chars and punctuation (skip spaces)
+    while (offset < text.length && text[offset] !== ' ') {
+      offset++;
+    }
+    range.setEnd(endNode, offset);
+  }
+
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 transcriptList.addEventListener('mouseup', () => {
   setTimeout(() => {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) { hideSelectionPopup(); return; }
+
+    // Snap to whole words (including punctuation)
+    expandSelectionToWords(selection);
 
     const selected = selection.toString().trim();
     if (!selected || selected.length < 2) { hideSelectionPopup(); return; }
@@ -763,7 +824,7 @@ explainPanelBtn.addEventListener('click', async () => {
 
 // --- Create Card button ---
 
-createCardBtn.addEventListener('click', () => {
+createCardBtn.addEventListener('click', async () => {
   if (!currentFolder || currentAnchorIndex < 0) return;
 
   const sub = subtitles[currentAnchorIndex];
@@ -783,9 +844,9 @@ createCardBtn.addEventListener('click', () => {
     createdAt: Date.now(),
   };
 
-  const cards = loadCards(currentFolder);
+  const cards = await loadCards(currentFolder);
   cards.push(card);
-  saveCards(currentFolder, cards);
+  await saveCards(currentFolder, cards);
 
   // Visual confirmation
   createCardBtn.textContent = 'Saved!';
@@ -825,6 +886,7 @@ function openCardModal(card: Card): void {
   clipTimeUpdateHandler = () => {
     if (cardModalVideo.currentTime >= card.endTime) {
       cardModalVideo.pause();
+      cardModalVideo.currentTime = card.startTime;
     }
   };
   cardModalVideo.addEventListener('timeupdate', clipTimeUpdateHandler);

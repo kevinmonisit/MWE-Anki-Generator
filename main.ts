@@ -28,6 +28,41 @@ function saveSettings(settings: UserSettings): void {
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 }
 
+// Card storage on disk
+const CARDS_DIR = path.join(app.getPath('userData'), 'cards');
+
+function loadCardsFromDisk(folder: string): Card[] {
+  try {
+    const filePath = path.join(CARDS_DIR, `${folder}.json`);
+    const data = fs.readFileSync(filePath, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return [];
+  }
+}
+
+function saveCardsToDisk(folder: string, cards: Card[]): void {
+  fs.mkdirSync(CARDS_DIR, { recursive: true });
+  fs.writeFileSync(path.join(CARDS_DIR, `${folder}.json`), JSON.stringify(cards, null, 2));
+}
+
+interface Card {
+  id: string;
+  expression: string;
+  meaning: string;
+  translation: string;
+  targetLineBefore: string;
+  targetLineAfter: string;
+  selectedText: string;
+  time: string;
+  source: string;
+  startTime: number;
+  endTime: number;
+  createdAt: number;
+  exported?: boolean;
+  chunking?: boolean;
+}
+
 // Load OpenAI API key from .env.local
 function loadOpenAIKey(): string {
   try {
@@ -108,6 +143,13 @@ app.on('activate', () => {
 ipcMain.handle('load-settings', async () => loadSettings());
 ipcMain.handle('save-settings', async (_event, settings: UserSettings) => {
   saveSettings(settings);
+  return { success: true };
+});
+
+// IPC: Card storage on disk
+ipcMain.handle('load-cards', async (_event, folder: string) => loadCardsFromDisk(folder));
+ipcMain.handle('save-cards', async (_event, folder: string, cards: Card[]) => {
+  saveCardsToDisk(folder, cards);
   return { success: true };
 });
 
@@ -385,6 +427,73 @@ const CARD_BACK = `<div class="image-wrap">{{Image}}</div>
 <div id="tr" class="trans-text" style="display:none">{{Translation}}</div>
 </div>{{/Translation}}`;
 
+// Cloze model for chunking cards
+const CLOZE_MODEL_NAME = 'Spanish Chunking Cloze';
+const CLOZE_MODEL_ID = 2_345_678_902;
+
+const CLOZE_FRONT = `<div class="sentence">{{cloze:Text}}</div>`;
+
+const CLOZE_BACK = `<div class="sentence">{{cloze:Text}}</div>
+<hr id="answer">
+<div class="image-wrap">{{Image}}</div>
+<div class="audio-wrap">{{Audio}}</div>
+{{#Extra}}<div class="explanation">{{Extra}}</div>{{/Extra}}`;
+
+async function ensureClozeModel(): Promise<void> {
+  const res = await ankiRequest('modelNames');
+  const models = res.result as string[];
+
+  if (!models.includes(CLOZE_MODEL_NAME)) {
+    await ankiRequest('createModel', {
+      modelName: CLOZE_MODEL_NAME,
+      inOrderFields: ['Text', 'Extra', 'Audio', 'Image'],
+      css: ANKI_MODEL_CSS,
+      isCloze: true,
+      cardTemplates: [
+        { Name: 'Cloze', Front: CLOZE_FRONT, Back: CLOZE_BACK },
+      ],
+    });
+  } else {
+    await ankiRequest('updateModelStyling', { model: { name: CLOZE_MODEL_NAME, css: ANKI_MODEL_CSS } });
+    await ankiRequest('updateModelTemplates', {
+      model: {
+        name: CLOZE_MODEL_NAME,
+        templates: { Cloze: { Front: CLOZE_FRONT, Back: CLOZE_BACK } },
+      },
+    });
+  }
+}
+
+async function getClozeHint(selectedText: string, fullSentence: string, translation: string): Promise<string> {
+  if (!OPENAI_API_KEY) return translation || 'hint';
+
+  const prompt = `Give me a 2-5 word natural, colloquial English hint for the Spanish phrase "${selectedText}" as used in the sentence "${fullSentence}". The full sentence translates to: "${translation}". Just respond with the short hint, nothing else. Make it the most natural English a native speaker would use in conversation.`;
+
+  try {
+    const response = await net.fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 30,
+        temperature: 0.3,
+      }),
+    });
+
+    const json = await response.json() as {
+      choices?: { message?: { content?: string } }[];
+    };
+
+    return json.choices?.[0]?.message?.content?.trim() || translation || 'hint';
+  } catch {
+    return translation || 'hint';
+  }
+}
+
 async function ensureAnkiModel(): Promise<void> {
   const res = await ankiRequest('modelNames');
   const models = res.result as string[];
@@ -442,12 +551,14 @@ interface ExportCard {
   targetLineAfter: string;
   startTime: number;
   endTime: number;
+  chunking?: boolean;
 }
 
 interface ExportParams {
   videoDir: string;
   cards: ExportCard[];
   deckName: string;
+  chunkingDeckName: string;
   videoTitle: string;
 }
 
@@ -458,7 +569,7 @@ interface ExportResult {
 }
 
 ipcMain.handle('export-cards-to-anki', async (_event, params: ExportParams): Promise<{ results: ExportResult[] }> => {
-  const { videoDir, cards, deckName, videoTitle } = params;
+  const { videoDir, cards, deckName, chunkingDeckName, videoTitle } = params;
   // Sanitize title for Anki tag: replace spaces/special chars with underscores
   const titleTag = videoTitle.replace(/[^\w\u00C0-\u024F]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80);
   const videoPath = path.join(videoDir, 'video.mp4');
@@ -469,9 +580,12 @@ ipcMain.handle('export-cards-to-anki', async (_event, params: ExportParams): Pro
   fs.mkdirSync(audioDir, { recursive: true });
   fs.mkdirSync(imgDir, { recursive: true });
 
-  // Ensure model exists in Anki
+  // Ensure models exist in Anki
   try {
     await ensureAnkiModel();
+    if (chunkingDeckName) {
+      await ensureClozeModel();
+    }
   } catch (err) {
     return { results: cards.map(c => ({ cardId: c.id, success: false, error: `Model creation failed: ${(err as Error).message}` })) };
   }
@@ -535,6 +649,35 @@ ipcMain.handle('export-cards-to-anki', async (_event, params: ExportParams): Pro
       if (addRes.error) {
         results.push({ cardId: card.id, success: false, error: addRes.error });
       } else {
+        // If chunking is enabled for this card, also create a cloze card
+        if (card.chunking && chunkingDeckName) {
+          try {
+            const hint = await getClozeHint(card.selectedText, card.expression, card.translation || '');
+            // Build cloze text: replace selectedText with cloze deletion
+            const clozeText = card.expression.replace(
+              card.selectedText,
+              `{{c1::${card.selectedText}::${hint}}}`
+            );
+
+            await ankiRequest('addNote', {
+              note: {
+                deckName: chunkingDeckName,
+                modelName: CLOZE_MODEL_NAME,
+                fields: {
+                  Text: clozeText,
+                  Extra: card.meaning || '',
+                  Audio: `[sound:${audioFile}]`,
+                  Image: `<img src="${imgFile}">`,
+                },
+                options: { allowDuplicate: false },
+                tags: ['chunking', 'spanish', titleTag].filter(Boolean),
+              },
+            });
+          } catch (clozeErr) {
+            // Cloze failure is non-fatal; the main card was already created
+            console.error(`Cloze card failed for ${card.id}:`, (clozeErr as Error).message);
+          }
+        }
         results.push({ cardId: card.id, success: true });
       }
     } catch (err) {
