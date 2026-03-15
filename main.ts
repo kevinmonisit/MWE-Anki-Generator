@@ -273,9 +273,9 @@ ipcMain.handle('openai-explain', async (_event, params: ExplainParams) => {
 
   const { selectedText, fullSentence, sentenceBefore, sentenceAfter } = params;
 
-  const prompt = `You are a Spanish language tutor helping an English-speaking student. The student selected the following Spanish text: "${selectedText}"
+  const prompt = `You are a Mexican Spanish language API that explains the specific nuance of specified word(s) in a sentence. The student selected: "${selectedText}"
 
-It appears in this full sentence: "${fullSentence}"
+It appears in this sentence: "${fullSentence}"
 
 Surrounding context:
 Previous line: "${sentenceBefore}"
@@ -283,7 +283,7 @@ Current line: "${fullSentence}"
 Next line: "${sentenceAfter}"
 
 Respond with a JSON object (no markdown, no code fences) with exactly two fields:
-- "explanation": a concise explanation (2-3 sentences max) of the selected text. Use the surrounding context to clarify how the phrase is being used in this specific moment — reference what is happening in the scene where relevant. Cover meaning, nuance, idioms, or key grammar as needed.
+- "explanation": Respond concisely in no more than 100 words. The specified word(s)/phrases MUST be in their original Spanish. All other explanation text MUST be in English. Use Mexican Spanish. Write an explanation that helps someone understand the word, phrase, or idiom and how it is used in this context, as though you're explaining it to a friend. Use the surrounding context to clarify how the phrase is being used in this specific moment. DO NOT output the word 'nuance'. DO NOT use complicated words. Explain the essence of the word in its context to an intermediate to advanced Spanish learner. DO NOT avoid direct explanations for tricky or slang meanings; explain them as they are. DO NOT overcomplicate with grammar jargon; keep it natural and simple. Conclude with the specific meaning within the context sentence.
 - "translation": a natural English translation of the ENTIRE current line "${fullSentence}" (not just the selected part — translate the whole sentence).
 
 Example format: {"explanation":"...","translation":"..."}`;
