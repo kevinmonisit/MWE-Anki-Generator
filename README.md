@@ -2,6 +2,8 @@
 
 A desktop app for learning Spanish from YouTube videos. Download a video, get an automatic transcription, select phrases to get AI explanations, and export flashcards directly to Anki — complete with audio clips and screenshots.
 
+![Preview](preview.png)
+
 ## Features
 
 - **Download & Transcribe** — Paste a YouTube URL, download the video, and get automatic Spanish subtitles via MLX Whisper (Apple Silicon optimized)
