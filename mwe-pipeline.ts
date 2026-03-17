@@ -10,6 +10,7 @@ export interface MWEResult {
   sentence_text: string;
   sentence_index: number;
   is_new: boolean;
+  is_known: boolean;
 }
 
 export interface MWETypeRow {
@@ -55,6 +56,7 @@ export function initMWEDatabase(dbPath: string): Database.Database {
       normalized_form TEXT UNIQUE NOT NULL,
       categories TEXT NOT NULL,
       context_note TEXT,
+      is_known INTEGER DEFAULT 0,
       first_seen_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS mwe_instances (
@@ -69,6 +71,10 @@ export function initMWEDatabase(dbPath: string): Database.Database {
       extracted_at TEXT DEFAULT (datetime('now'))
     );
   `);
+  // Migration: add is_known column for existing databases
+  try {
+    mweDb.exec(`ALTER TABLE mwe_types ADD COLUMN is_known INTEGER DEFAULT 0`);
+  } catch { /* column already exists */ }
   return mweDb;
 }
 
@@ -79,14 +85,10 @@ export function getMWEDb(): Database.Database {
 
 // --- OpenAI helpers ---
 
-async function callOpenAI(apiKey: string, systemPrompt: string, userPrompt: string, maxTokens: number = 4000, signal?: AbortSignal, model: string = 'gpt-4.1-nano'): Promise<string> {
-  const response = await net.fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
+async function callOpenAI(apiKey: string, systemPrompt: string, userPrompt: string, maxTokens: number = 4000, signal?: AbortSignal, model: string = 'gpt-4.1'): Promise<string> {
+  const maxRetries = 5;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const bodyStr = JSON.stringify({
       model,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -94,17 +96,36 @@ async function callOpenAI(apiKey: string, systemPrompt: string, userPrompt: stri
       ],
       max_tokens: maxTokens,
       temperature: 0.3,
-    }),
-    signal,
-  } as RequestInit);
+    });
+    const response = await net.fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: bodyStr,
+      signal,
+    } as RequestInit);
 
-  const json = await response.json() as {
-    choices?: { message?: { content?: string } }[];
-    error?: { message?: string };
-  };
+    const json = await response.json() as {
+      choices?: { message?: { content?: string } }[];
+      error?: { message?: string; type?: string; code?: string };
+    };
 
-  if (json.error) throw new Error(json.error.message || 'OpenAI API error');
-  return json.choices?.[0]?.message?.content?.trim() || '[]';
+    if (json.error) {
+      const isRateLimit = response.status === 429 || json.error.type === 'rate_limit_error' || json.error.code === 'rate_limit_exceeded';
+      if (isRateLimit && attempt < maxRetries - 1) {
+        const retryAfterHeader = response.headers.get('retry-after');
+        const waitMs = retryAfterHeader ? parseFloat(retryAfterHeader) * 1000 : Math.min(1000 * Math.pow(2, attempt), 10000);
+        console.log(`Rate limited, retrying in ${Math.round(waitMs)}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        continue;
+      }
+      throw new Error(json.error.message || 'OpenAI API error');
+    }
+    return json.choices?.[0]?.message?.content?.trim() || '[]';
+  }
+  throw new Error('Max retries exceeded');
 }
 
 function parseJSONResponse<T>(raw: string): T[] {
@@ -141,7 +162,7 @@ async function normalizeMWEBatch(apiKey: string, mwes: MWEExtracted[], signal?: 
     `Normalize these MWEs:\n\n${JSON.stringify(input, null, 2)}`,
     4000,
     signal,
-    'gpt-4.1-nano'
+    'gpt-4.1'
   );
 
   try {
@@ -208,6 +229,7 @@ function storeMWEs(
         sentence_text: sentenceText,
         sentence_index: mwe.sentence_index,
         is_new: isNew,
+        is_known: false,
       });
     }
   });
@@ -228,7 +250,7 @@ export async function runMWEPipeline(
   const db = getMWEDb();
   const allExtracted: MWEExtracted[] = [];
   const batchSize = 20;
-  const concurrency = 5; // Run 5 API calls in parallel
+  const concurrency = 2; // Keep low to avoid rate limits on gpt-4.1
   const totalBatches = Math.ceil(subtitles.length / batchSize);
 
   // Step 1: Extract MWEs in concurrent batches
@@ -303,12 +325,12 @@ export async function runMWEPipeline(
 export function getMWEsForFolder(folder: string): MWEResult[] {
   const db = getMWEDb();
   const rows = db.prepare(`
-    SELECT t.normalized_form, t.categories, t.context_note, i.surface_form, i.sentence_index, i.sentence_text
+    SELECT t.normalized_form, t.categories, t.context_note, t.is_known, i.surface_form, i.sentence_index, i.sentence_text
     FROM mwe_instances i
     JOIN mwe_types t ON i.mwe_type_id = t.id
     WHERE i.transcript_file = ?
     ORDER BY i.sentence_index
-  `).all(folder) as { normalized_form: string; categories: string; context_note: string; surface_form: string; sentence_index: number; sentence_text: string }[];
+  `).all(folder) as { normalized_form: string; categories: string; context_note: string; is_known: number; surface_form: string; sentence_index: number; sentence_text: string }[];
 
   return rows.map(r => ({
     normalized_form: r.normalized_form,
@@ -318,7 +340,19 @@ export function getMWEsForFolder(folder: string): MWEResult[] {
     sentence_text: r.sentence_text,
     sentence_index: r.sentence_index,
     is_new: false,
+    is_known: !!r.is_known,
   }));
+}
+
+export function markMWEsKnown(normalizedForms: string[], known: boolean): void {
+  const db = getMWEDb();
+  const stmt = db.prepare('UPDATE mwe_types SET is_known = ? WHERE normalized_form = ?');
+  const transaction = db.transaction(() => {
+    for (const form of normalizedForms) {
+      stmt.run(known ? 1 : 0, form);
+    }
+  });
+  transaction();
 }
 
 export function getAllMWETypes(): MWETypeRow[] {

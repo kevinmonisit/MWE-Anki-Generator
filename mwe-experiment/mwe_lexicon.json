@@ -1,0 +1,449 @@
+[
+  {
+    "normalized_form": "aflojar la lana",
+    "parseme_categories": "VID;mexicanismo",
+    "categories": [
+      "VID",
+      "mexicanismo"
+    ],
+    "context_note": "coughed up the money",
+    "normalization_note": "Infinitive verb + object; Mexicanism",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "aflojó la lana",
+        "sentence_index": 4,
+        "sentence_text": "Un compa empezó a hacerse el loco porque no quería pagar el Uber, pero al final aflojó la lana."
+      }
+    ]
+  },
+  {
+    "normalized_form": "al final",
+    "parseme_categories": "locucion_adverbial",
+    "categories": [
+      "locucion_adverbial"
+    ],
+    "context_note": "in the end",
+    "normalization_note": "Fixed adverbial phrase",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "al final",
+        "sentence_index": 4,
+        "sentence_text": "Un compa empezó a hacerse el loco porque no quería pagar el Uber, pero al final aflojó la lana."
+      }
+    ]
+  },
+  {
+    "normalized_form": "al rato",
+    "parseme_categories": "locucion_adverbial",
+    "categories": [
+      "locucion_adverbial"
+    ],
+    "context_note": "later",
+    "normalization_note": "Fixed adverbial phrase; Mexicanism",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "Al rato",
+        "sentence_index": 7,
+        "sentence_text": "Al rato me di cuenta de que ya era tardísimo."
+      }
+    ]
+  },
+  {
+    "normalized_form": "bien chido",
+    "parseme_categories": "mexicanismo",
+    "categories": [
+      "mexicanismo"
+    ],
+    "context_note": "very cool / great",
+    "normalization_note": "Fixed Mexican intensifier + adjective",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "bien chido",
+        "sentence_index": 0,
+        "sentence_text": "Ayer salí con unos amigos y la neta la pasamos bien chido."
+      }
+    ]
+  },
+  {
+    "normalized_form": "cada quien",
+    "parseme_categories": "expresion_fija;mexicanismo",
+    "categories": [
+      "expresion_fija",
+      "mexicanismo"
+    ],
+    "context_note": "each person / everyone",
+    "normalization_note": "Fixed expression; Mexicanism",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "cada quien",
+        "sentence_index": 9,
+        "sentence_text": "Total, pedimos otro drink nomás para no quedar mal y luego cada quien jaló para su casa."
+      }
+    ]
+  },
+  {
+    "normalized_form": "caer el veinte",
+    "parseme_categories": "VID;IRV;mexicanismo",
+    "categories": [
+      "VID",
+      "IRV",
+      "mexicanismo"
+    ],
+    "context_note": "I was realizing / it was dawning on me",
+    "normalization_note": "Infinitive form; Mexican idiom",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "me estaba cayendo el veinte",
+        "sentence_index": 8,
+        "sentence_text": "La verdad ya me estaba cayendo el veinte de que mañana tenía que chambear temprano."
+      }
+    ]
+  },
+  {
+    "normalized_form": "darse cuenta",
+    "parseme_categories": "VID;IRV",
+    "categories": [
+      "VID",
+      "IRV"
+    ],
+    "context_note": "realized / became aware",
+    "normalization_note": "Pronominal verb, infinitive + se",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "me di cuenta",
+        "sentence_index": 7,
+        "sentence_text": "Al rato me di cuenta de que ya era tardísimo."
+      }
+    ]
+  },
+  {
+    "normalized_form": "echar relajo",
+    "parseme_categories": "LVC.full;mexicanismo",
+    "categories": [
+      "LVC.full",
+      "mexicanismo"
+    ],
+    "context_note": "to mess around / have fun",
+    "normalization_note": "Light verb construction in infinitive",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "echar relajo",
+        "sentence_index": 5,
+        "sentence_text": "Ya en el bar nos pusimos a cotorrear y a echar relajo."
+      }
+    ]
+  },
+  {
+    "normalized_form": "echarse a perder",
+    "parseme_categories": "VID;IRV;VPC",
+    "categories": [
+      "VID",
+      "IRV",
+      "VPC"
+    ],
+    "context_note": "got ruined / spoiled",
+    "normalization_note": "Pronominal verb, infinitive + se",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "se echó a perder",
+        "sentence_index": 1,
+        "sentence_text": "Primero íbamos a echarnos unos tacos, pero el puesto se echó a perder porque se les fue la luz."
+      }
+    ]
+  },
+  {
+    "normalized_form": "echarse unos tacos",
+    "parseme_categories": "VID;mexicanismo",
+    "categories": [
+      "VID",
+      "mexicanismo"
+    ],
+    "context_note": "to eat tacos (colloquial)",
+    "normalization_note": "Pronominal verb in infinitive; Mexicanism",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "echarse unos tacos",
+        "sentence_index": 1,
+        "sentence_text": "Primero íbamos a echarnos unos tacos, pero el puesto se echó a perder porque se les fue la luz."
+      }
+    ]
+  },
+  {
+    "normalized_form": "hacerse el loco",
+    "parseme_categories": "VID;IRV",
+    "categories": [
+      "VID",
+      "IRV"
+    ],
+    "context_note": "to play dumb / pretend not to know",
+    "normalization_note": "Pronominal verb, infinitive + se",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "hacerse el loco",
+        "sentence_index": 4,
+        "sentence_text": "Un compa empezó a hacerse el loco porque no quería pagar el Uber, pero al final aflojó la lana."
+      }
+    ]
+  },
+  {
+    "normalized_form": "ir a + echarse unos tacos",
+    "parseme_categories": "MVC;mexicanismo",
+    "categories": [
+      "MVC",
+      "mexicanismo"
+    ],
+    "context_note": "we were going to get some tacos",
+    "normalization_note": "Periphrasis: ir a + infinitive (pattern form); pronominal verb",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "íbamos a echarnos unos tacos",
+        "sentence_index": 1,
+        "sentence_text": "Primero íbamos a echarnos unos tacos, pero el puesto se echó a perder porque se les fue la luz."
+      }
+    ]
+  },
+  {
+    "normalized_form": "ir a + ver",
+    "parseme_categories": "MVC",
+    "categories": [
+      "MVC"
+    ],
+    "context_note": "let's go see",
+    "normalization_note": "Periphrasis: ir a + infinitive (pattern form)",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "vamos a ver",
+        "sentence_index": 3,
+        "sentence_text": "Entonces dijimos órale, vamos a ver qué onda en el centro."
+      }
+    ]
+  },
+  {
+    "normalized_form": "jalar para su casa",
+    "parseme_categories": "VID;mexicanismo",
+    "categories": [
+      "VID",
+      "mexicanismo"
+    ],
+    "context_note": "headed home (jaló = left, went, slang)",
+    "normalization_note": "Infinitive verb + phrase; Mexicanism",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "jaló para su casa",
+        "sentence_index": 9,
+        "sentence_text": "Total, pedimos otro drink nomás para no quedar mal y luego cada quien jaló para su casa."
+      }
+    ]
+  },
+  {
+    "normalized_form": "la neta",
+    "parseme_categories": "mexicanismo;marcador_discursivo",
+    "categories": [
+      "mexicanismo",
+      "marcador_discursivo"
+    ],
+    "context_note": "honestly / to be honest",
+    "normalization_note": "Fixed discourse marker; Mexicanism, keep as is",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "la neta",
+        "sentence_index": 0,
+        "sentence_text": "Ayer salí con unos amigos y la neta la pasamos bien chido."
+      }
+    ]
+  },
+  {
+    "normalized_form": "la verdad",
+    "parseme_categories": "marcador_discursivo",
+    "categories": [
+      "marcador_discursivo"
+    ],
+    "context_note": "honestly / to be honest",
+    "normalization_note": "Fixed discourse marker",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "La verdad",
+        "sentence_index": 8,
+        "sentence_text": "La verdad ya me estaba cayendo el veinte de que mañana tenía que chambear temprano."
+      }
+    ]
+  },
+  {
+    "normalized_form": "ni modo",
+    "parseme_categories": "expresion_fija;marcador_discursivo;mexicanismo",
+    "categories": [
+      "expresion_fija",
+      "marcador_discursivo",
+      "mexicanismo"
+    ],
+    "context_note": "oh well / can't be helped",
+    "normalization_note": "Fixed expression; keep as is",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "Ni modo",
+        "sentence_index": 2,
+        "sentence_text": "Ni modo, así pasa."
+      }
+    ]
+  },
+  {
+    "normalized_form": "para no quedar mal",
+    "parseme_categories": "expresion_fija",
+    "categories": [
+      "expresion_fija"
+    ],
+    "context_note": "so as not to look bad / let someone down",
+    "normalization_note": "Fixed expression; infinitive",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "para no quedar mal",
+        "sentence_index": 9,
+        "sentence_text": "Total, pedimos otro drink nomás para no quedar mal y luego cada quien jaló para su casa."
+      }
+    ]
+  },
+  {
+    "normalized_form": "pasarla bien chido",
+    "parseme_categories": "colocacion;mexicanismo",
+    "categories": [
+      "colocacion",
+      "mexicanismo"
+    ],
+    "context_note": "we had a great time",
+    "normalization_note": "Infinitive + pronoun; Mexican colloquial collocation",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "la pasamos bien chido",
+        "sentence_index": 0,
+        "sentence_text": "Ayer salí con unos amigos y la neta la pasamos bien chido."
+      }
+    ]
+  },
+  {
+    "normalized_form": "pasarse de lanza",
+    "parseme_categories": "VID;IRV;mexicanismo",
+    "categories": [
+      "VID",
+      "IRV",
+      "mexicanismo"
+    ],
+    "context_note": "went too far / was out of line",
+    "normalization_note": "Pronominal verb, infinitive + se; Mexicanism",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "se pasó de lanza",
+        "sentence_index": 6,
+        "sentence_text": "Un amigo se pasó de lanza y empezó a hablarle a todo el mundo."
+      }
+    ]
+  },
+  {
+    "normalized_form": "ponerse a + cotorrear",
+    "parseme_categories": "MVC;mexicanismo",
+    "categories": [
+      "MVC",
+      "mexicanismo"
+    ],
+    "context_note": "we started to chat/hang out",
+    "normalization_note": "Periphrasis: ponerse a + infinitive (pattern form); pronominal",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "nos pusimos a cotorrear",
+        "sentence_index": 5,
+        "sentence_text": "Ya en el bar nos pusimos a cotorrear y a echar relajo."
+      }
+    ]
+  },
+  {
+    "normalized_form": "qué onda",
+    "parseme_categories": "mexicanismo;marcador_discursivo",
+    "categories": [
+      "mexicanismo",
+      "marcador_discursivo"
+    ],
+    "context_note": "what's up / what's going on",
+    "normalization_note": "Fixed Mexican greeting/discourse marker; keep as is",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "qué onda",
+        "sentence_index": 3,
+        "sentence_text": "Entonces dijimos órale, vamos a ver qué onda en el centro."
+      }
+    ]
+  },
+  {
+    "normalized_form": "tener que + chambear",
+    "parseme_categories": "MVC;mexicanismo",
+    "categories": [
+      "MVC",
+      "mexicanismo"
+    ],
+    "context_note": "had to work (chambear = to work, slang)",
+    "normalization_note": "Periphrasis: tener que + infinitive (pattern form); Mexican verb",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "tenía que chambear",
+        "sentence_index": 8,
+        "sentence_text": "La verdad ya me estaba cayendo el veinte de que mañana tenía que chambear temprano."
+      }
+    ]
+  },
+  {
+    "normalized_form": "total",
+    "parseme_categories": "marcador_discursivo",
+    "categories": [
+      "marcador_discursivo"
+    ],
+    "context_note": "anyway / so",
+    "normalization_note": "Fixed discourse marker",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "Total",
+        "sentence_index": 9,
+        "sentence_text": "Total, pedimos otro drink nomás para no quedar mal y luego cada quien jaló para su casa."
+      }
+    ]
+  },
+  {
+    "normalized_form": "órale",
+    "parseme_categories": "mexicanismo;marcador_discursivo",
+    "categories": [
+      "mexicanismo",
+      "marcador_discursivo"
+    ],
+    "context_note": "let's go / wow / okay",
+    "normalization_note": "Fixed discourse marker; Mexicanism, keep as is",
+    "frequency": 1,
+    "instances": [
+      {
+        "surface_form": "órale",
+        "sentence_index": 3,
+        "sentence_text": "Entonces dijimos órale, vamos a ver qué onda en el centro."
+      }
+    ]
+  }
+]

@@ -23,6 +23,7 @@ interface MWEResult {
   sentence_text: string;
   sentence_index: number;
   is_new: boolean;
+  is_known: boolean;
 }
 
 interface MWEType {
@@ -80,6 +81,7 @@ interface ElectronAPI {
   onMWEProgress: (callback: (progress: MWEProgress) => void) => void;
   getMWEsForFolder: (folder: string) => Promise<MWEResult[]>;
   getAllMWETypes: () => Promise<MWEType[]>;
+  markMWEsKnown: (params: { normalizedForms: string[]; known: boolean }) => Promise<{ success: boolean }>;
 }
 
 interface Window {

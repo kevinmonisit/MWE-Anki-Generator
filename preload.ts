@@ -13,6 +13,7 @@ export interface MWEResult {
   sentence_text: string;
   sentence_index: number;
   is_new: boolean;
+  is_known: boolean;
 }
 
 export interface MWEType {
@@ -57,6 +58,7 @@ export interface ElectronAPI {
   onMWEProgress: (callback: (progress: MWEProgress) => void) => void;
   getMWEsForFolder: (folder: string) => Promise<MWEResult[]>;
   getAllMWETypes: () => Promise<MWEType[]>;
+  markMWEsKnown: (params: { normalizedForms: string[]; known: boolean }) => Promise<{ success: boolean }>;
 }
 
 contextBridge.exposeInMainWorld('api', {
@@ -89,4 +91,5 @@ contextBridge.exposeInMainWorld('api', {
   },
   getMWEsForFolder: (folder: string) => ipcRenderer.invoke('get-mwes-for-folder', folder),
   getAllMWETypes: () => ipcRenderer.invoke('get-all-mwe-types'),
+  markMWEsKnown: (params: { normalizedForms: string[]; known: boolean }) => ipcRenderer.invoke('mark-mwes-known', params),
 } satisfies ElectronAPI);

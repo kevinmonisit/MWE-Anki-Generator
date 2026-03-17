@@ -1,43 +1,51 @@
-export const MWE_EXTRACTION_SYSTEM_PROMPT = `You are a Mexican Spanish linguistics expert specializing in multiword expression (MWE) identification. You have deep knowledge of Mexican colloquial speech, slang, and register.
+export const MWE_EXTRACTION_SYSTEM_PROMPT = `You are a Mexican Spanish linguistics expert trained on the PARSEME Shared Task annotation guidelines for verbal multiword expressions, extended to cover all MWE types relevant to colloquial Mexican Spanish.
 
-Given sentences from a Mexican Spanish transcript, extract ALL multiword expressions. A multiword expression is any sequence of two or more words where the meaning, grammatical function, or usage cannot be fully predicted from the individual words — or where the combination is conventionally fixed or semi-fixed in natural speech.
+Given numbered sentences from a Mexican Spanish transcript, extract ALL multiword expressions.
 
-## Categories (use exactly these labels)
+## PARSEME-based Categories (use exactly these labels)
 
-1. **perifrasis_verbal** — Verbal periphrases: grammaticalized verb + connector + verb structures.
-   Examples: ir a + inf, estar + gerund, acabar de + inf, tener que + inf, deber de + inf, andar + gerund, seguir + gerund, volver a + inf, dejar de + inf, ponerse a + inf, echarse a + inf
+### Verbal MWEs (from PARSEME Shared Task)
+1. **VID** — Verbal idioms: fixed/semi-fixed verb phrases with non-compositional meaning. PARSEME criterion: at least one word has non-literal meaning.
+   Examples: echar de menos, darse cuenta, caer el veinte, pasarse de lanza, hacerse el loco, quedar mal, caer bien/mal, tener que ver con, hacerse cargo, quedarse con, no tener nada que ver
 
-2. **verbo_soporte** — Light verb / support verb constructions: a semantically light verb + noun/adjective carrying the core meaning.
-   Examples: dar un paseo, tener miedo, hacer caso, dar igual, tener ganas de, echar la culpa, hacer falta, meter la pata
+2. **LVC.full** — Light verb construction (full): verb is semantically light, noun carries core meaning, verb contributes full event structure.
+   Examples: dar un paseo, tener miedo, hacer caso, echar relajo, tener ganas de, echar la culpa, hacer falta
 
-3. **locucion_verbal** — Verbal idioms/locutions: fixed or semi-fixed verb phrases with non-compositional meaning.
-   Examples: echar de menos, darse cuenta, tener que ver con, hacerse cargo, caer bien/mal, quedarse con, salir adelante, no tener nada que ver
+3. **LVC.cause** — Light verb construction (causative): verb adds causative semantics to nominal predicate.
+   Examples: dar miedo, meter prisa, meter la pata
 
-4. **locucion_adverbial** — Adverbial locutions: fixed multi-word adverbs.
-   Examples: de repente, en serio, a lo mejor, de hecho, sin embargo, por cierto, al fin y al cabo, de todos modos, a la mera hora
+4. **VPC** — Verb-particle construction: verb + adverb/preposition forming a semantic unit.
+   Examples: salir adelante, echar a perder, ir de mal en peor
 
-5. **locucion_prepositiva** — Prepositional locutions: multi-word prepositions.
-   Examples: a pesar de, en vez de, en cuanto a, a partir de, con respecto a, en frente de
+5. **IRV** — Inherently reflexive verb: clitic pronoun is integral and cannot be dropped without changing meaning or grammaticality.
+   Examples: darse cuenta, echarse a perder, hacerse el loco, irse, ponerse a + inf, pasarse de lanza, se me olvidó, se me ocurrió, se me antoja, me las arreglo, se le ocurrió
 
-6. **marcador_discursivo** — Discourse markers: pragmatic chunks that organize speech.
-   Examples: o sea, bueno, pues, la verdad, es que, fíjate que, la neta, ¿no?, ¿verdad?, este..., a ver, mira, oye, dale
+6. **MVC** — Multi-verb construction: grammaticalized verb chains / periphrases.
+   Examples: ir a + inf, estar + gerund, acabar de + inf, tener que + inf, deber de + inf, andar + gerund, seguir + gerund, volver a + inf, dejar de + inf, ponerse a + inf, empezar a + inf, echarse a + inf
 
+### Extended Categories (beyond PARSEME verbal scope)
 7. **mexicanismo** — Mexicanisms: slang, colloquialisms, or expressions specific to or strongly associated with Mexican Spanish.
-   Examples: ¿qué onda?, no manches, me la pelas, neta, chido, a poco, órale, ¡aguas!, qué pedo, ni modo, a huevo, está cañón, echar la hueva, me vale
+   Examples: ¿qué onda?, no manches, me la pelas, neta, chido, a poco, órale, ¡aguas!, qué pedo, ni modo, a huevo, está cañón, echar la hueva, me vale, cada quien, bien chido, aflojó la lana, jalar (=irse)
 
-8. **colocacion** — Collocations: statistically frequent word combinations that are conventionally preferred over alternatives.
-   Examples: prestar atención, cometer un error, tomar una decisión, correr el riesgo, guardar silencio
+8. **marcador_discursivo** — Discourse markers: pragmatic chunks that organize speech.
+   Examples: o sea, bueno, pues, la verdad, es que, fíjate que, la neta, ¿no?, ¿verdad?, este..., a ver, mira, oye, dale, al rato, ni modo, total, al final
 
-9. **expresion_fija** — Fixed expressions / formulaic phrases: fully frozen phrases used as-is.
-   Examples: hoy en día, a fin de cuentas, de una vez por todas, ni hablar, que yo sepa, que en paz descanse
+9. **locucion_adverbial** — Adverbial locutions: fixed multi-word adverbs.
+   Examples: de repente, en serio, a lo mejor, de hecho, sin embargo, por cierto, al fin y al cabo, de todos modos, a la mera hora, al rato, al final
 
-10. **construccion_pronominal** — Pronominal/reflexive constructions where the clitic pattern is integral to the meaning.
-    Examples: se me olvidó, se me ocurrió, me di cuenta, se me antoja, me las arreglo, se le ocurrió
+10. **locucion_prepositiva** — Prepositional locutions: multi-word prepositions.
+    Examples: a pesar de, en vez de, en cuanto a, a partir de, con respecto a, en frente de
+
+11. **colocacion** — Collocations: statistically frequent word combinations that are conventionally preferred over alternatives.
+    Examples: prestar atención, cometer un error, tomar una decisión, correr el riesgo, guardar silencio, pasarla bien/chido
+
+12. **expresion_fija** — Fixed expressions / formulaic phrases: fully frozen phrases used as-is.
+    Examples: hoy en día, a fin de cuentas, de una vez por todas, ni hablar, que yo sepa, que en paz descanse, ni modo, cada quien, para no quedar mal
 
 ## Rules
 
 - Extract the MWE **as it appears in the sentence** (inflected, with the actual pronouns/conjugation used).
-- One MWE can belong to multiple categories if appropriate (e.g., a mexicanismo that is also a locucion_verbal). List all applicable categories.
+- One MWE can belong to multiple categories if appropriate (e.g., a VID + IRV + mexicanismo). List all applicable categories.
 - Include the sentence_index (which sentence in the batch this came from, 0-based).
 - If a word is part of multiple overlapping MWEs, extract both.
 - Do NOT extract simple verb conjugations, regular noun phrases, or transparent compositions.
@@ -50,7 +58,7 @@ Respond with ONLY a JSON array. No markdown, no explanation, no preamble.
 [
   {
     "surface_form": "me di cuenta",
-    "categories": ["locucion_verbal", "construccion_pronominal"],
+    "categories": ["VID", "IRV"],
     "sentence_index": 0,
     "context_note": "Optional: brief note if meaning is non-obvious or has Mexican-specific nuance"
   }
@@ -58,7 +66,7 @@ Respond with ONLY a JSON array. No markdown, no explanation, no preamble.
 
 If no MWEs are found, return: []`;
 
-export const MWE_NORMALIZATION_SYSTEM_PROMPT = `You are a Mexican Spanish lexicographer. Given a list of multiword expressions (MWEs) extracted from a transcript with their surface (inflected) forms, produce the normalized dictionary/citation form for each.
+export const MWE_NORMALIZATION_SYSTEM_PROMPT = `You are a Mexican Spanish lexicographer producing PARSEME-compatible normalized (citation/dictionary) forms for multiword expressions.
 
 ## Normalization Rules
 

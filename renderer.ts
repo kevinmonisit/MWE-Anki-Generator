@@ -897,8 +897,15 @@ const extractMWEsBtn = document.getElementById('extractMWEsBtn') as HTMLButtonEl
 const mweProgress = document.getElementById('mweProgress') as HTMLDivElement;
 const mweProgressText = document.getElementById('mweProgressText') as HTMLSpanElement;
 const mweResizeHandle = document.getElementById('mweResizeHandle') as HTMLDivElement;
+const mweTabCategories = document.getElementById('mweTabCategories') as HTMLButtonElement;
+const mweTabList = document.getElementById('mweTabList') as HTMLButtonElement;
 
 let isMWEResizing = false;
+let mweView: 'categories' | 'list' = 'categories';
+let lastMWEResults: MWEResult[] = [];
+let selectedMWEs = new Set<string>();
+let lastClickedMWEIndex = -1;
+let knownSectionCollapsed = true;
 let mweResizeStartX = 0;
 let mweResizeStartWidth = 0;
 
@@ -913,23 +920,45 @@ mweResizeHandle.addEventListener('mousedown', (e: MouseEvent) => {
 });
 
 const MWE_CATEGORY_COLORS: Record<string, string> = {
-  perifrasis_verbal: 'bg-blue-800/60 text-blue-300',
-  verbo_soporte: 'bg-purple-800/60 text-purple-300',
-  locucion_verbal: 'bg-green-800/60 text-green-300',
+  // PARSEME verbal MWE categories
+  VID: 'bg-green-800/60 text-green-300',
+  'LVC.full': 'bg-purple-800/60 text-purple-300',
+  'LVC.cause': 'bg-violet-800/60 text-violet-300',
+  VPC: 'bg-sky-800/60 text-sky-300',
+  IRV: 'bg-teal-800/60 text-teal-300',
+  MVC: 'bg-blue-800/60 text-blue-300',
+  // Extended categories
+  mexicanismo: 'bg-red-800/60 text-red-300',
+  marcador_discursivo: 'bg-pink-800/60 text-pink-300',
   locucion_adverbial: 'bg-yellow-800/60 text-yellow-300',
   locucion_prepositiva: 'bg-orange-800/60 text-orange-300',
-  marcador_discursivo: 'bg-pink-800/60 text-pink-300',
-  mexicanismo: 'bg-red-800/60 text-red-300',
   colocacion: 'bg-cyan-800/60 text-cyan-300',
   expresion_fija: 'bg-indigo-800/60 text-indigo-300',
-  construccion_pronominal: 'bg-teal-800/60 text-teal-300',
+};
+
+const MWE_CATEGORY_LABELS: Record<string, string> = {
+  VID: 'verbal idiom',
+  'LVC.full': 'light verb (full)',
+  'LVC.cause': 'light verb (cause)',
+  VPC: 'verb-particle',
+  IRV: 'inherently reflexive',
+  MVC: 'multi-verb / periphrasis',
 };
 
 function getCategoryLabel(cat: string): string {
-  return cat.replace(/_/g, ' ');
+  return MWE_CATEGORY_LABELS[cat] || cat.replace(/_/g, ' ');
 }
 
 function renderMWEList(results: MWEResult[]): void {
+  lastMWEResults = results;
+  if (mweView === 'categories') {
+    renderMWEByCategory(results);
+  } else {
+    renderMWEFlatList(results);
+  }
+}
+
+function renderMWEByCategory(results: MWEResult[]): void {
   mweList.innerHTML = '';
 
   if (results.length === 0) {
@@ -993,7 +1022,6 @@ function renderMWEList(results: MWEResult[]): void {
         ${item.context_note ? `<div class="text-[10px] text-gray-600 mt-0.5 italic">${escapeHtml(item.context_note)}</div>` : ''}
       `;
 
-      // Click to jump to that sentence in the transcript
       row.addEventListener('click', () => {
         if (item.sentence_index >= 0 && item.sentence_index < subtitles.length) {
           videoPlayer.currentTime = subtitles[item.sentence_index].start;
@@ -1018,6 +1046,195 @@ function renderMWEList(results: MWEResult[]): void {
   summary.textContent = `${uniqueNormalized.size} unique MWEs${newCount > 0 ? ` (${newCount} new)` : ''}`;
   mweList.insertBefore(summary, mweList.firstChild);
 }
+
+function renderMWEFlatList(results: MWEResult[]): void {
+  mweList.innerHTML = '';
+
+  if (results.length === 0) {
+    mweList.innerHTML = '<div class="py-6 px-3 text-gray-600 text-[12px] text-center">No MWEs found in this transcript.</div>';
+    return;
+  }
+
+  // Deduplicate by normalized_form, keeping first occurrence
+  const seen = new Set<string>();
+  const unique: MWEResult[] = [];
+  for (const r of results) {
+    if (!seen.has(r.normalized_form)) {
+      seen.add(r.normalized_form);
+      unique.push(r);
+    }
+  }
+
+  // Split into unknown (top) and known (bottom), both sorted alphabetically
+  const unknown = unique.filter(r => !r.is_known).sort((a, b) => a.normalized_form.localeCompare(b.normalized_form));
+  const known = unique.filter(r => r.is_known).sort((a, b) => a.normalized_form.localeCompare(b.normalized_form));
+  const displayList = [...unknown, ...known];
+
+  // Clean stale selections
+  const validForms = new Set(unique.map(r => r.normalized_form));
+  for (const form of selectedMWEs) {
+    if (!validForms.has(form)) selectedMWEs.delete(form);
+  }
+
+  const summary = document.createElement('div');
+  summary.className = 'py-2 px-3 text-[11px] text-gray-500 border-b border-border-primary';
+  summary.textContent = `${unique.length} unique MWEs${known.length > 0 ? ` · ${known.length} known` : ''}`;
+  mweList.appendChild(summary);
+
+  // Render unknown items
+  for (let i = 0; i < unknown.length; i++) {
+    mweList.appendChild(createMWEFlatRow(unknown[i], i, displayList));
+  }
+
+  // Render known section (collapsible)
+  if (known.length > 0) {
+    const knownHeader = document.createElement('div');
+    knownHeader.className = 'py-1.5 px-3 text-[10px] uppercase tracking-wider text-gray-500 font-semibold flex items-center justify-between cursor-pointer hover:text-gray-400 transition-colors border-t border-border-primary mt-1';
+    knownHeader.innerHTML = `<span>${knownSectionCollapsed ? '▸' : '▾'} Known (${known.length})</span>`;
+    knownHeader.addEventListener('click', () => {
+      knownSectionCollapsed = !knownSectionCollapsed;
+      renderMWEFlatList(lastMWEResults);
+    });
+    mweList.appendChild(knownHeader);
+
+    if (!knownSectionCollapsed) {
+      for (let i = 0; i < known.length; i++) {
+        mweList.appendChild(createMWEFlatRow(known[i], unknown.length + i, displayList));
+      }
+    }
+  }
+
+  // Action bar
+  renderMWEActionBar();
+}
+
+function createMWEFlatRow(item: MWEResult, indexInDisplayList: number, displayList: MWEResult[]): HTMLElement {
+  const isSelected = selectedMWEs.has(item.normalized_form);
+  const row = document.createElement('div');
+  const baseClass = 'py-1 px-3 cursor-pointer transition-colors border-l-2 select-none';
+  const selectedClass = isSelected
+    ? ' bg-accent/20 border-l-accent'
+    : ' border-l-transparent hover:bg-accent/10 hover:border-l-accent';
+  row.className = baseClass + selectedClass;
+
+  const textColor = item.is_known ? 'text-gray-500' : 'text-gray-200';
+  row.innerHTML = `
+    <div class="flex items-center gap-1.5">
+      <span class="text-[12px] ${textColor} font-medium">${escapeHtml(item.normalized_form)}</span>
+      ${item.is_new ? '<span class="text-[8px] bg-green-800/60 text-green-300 rounded px-1 py-0.5 uppercase font-bold shrink-0">new</span>' : ''}
+    </div>
+  `;
+
+  row.addEventListener('mousedown', (e: MouseEvent) => {
+    if (e.shiftKey) e.preventDefault();
+  });
+
+  row.addEventListener('click', (e: MouseEvent) => {
+    const form = item.normalized_form;
+
+    if (e.shiftKey) {
+      e.preventDefault();
+      if (selectedMWEs.has(form)) {
+        // Already selected: deselect it
+        selectedMWEs.delete(form);
+        lastClickedMWEIndex = selectedMWEs.size > 0 ? indexInDisplayList : -1;
+      } else if (lastClickedMWEIndex >= 0 && lastClickedMWEIndex !== indexInDisplayList) {
+        // Range select from anchor to current
+        const start = Math.min(lastClickedMWEIndex, indexInDisplayList);
+        const end = Math.max(lastClickedMWEIndex, indexInDisplayList);
+        for (let j = start; j <= end; j++) {
+          if (j < displayList.length) selectedMWEs.add(displayList[j].normalized_form);
+        }
+        lastClickedMWEIndex = indexInDisplayList;
+      } else {
+        // Select single item
+        selectedMWEs.add(form);
+        lastClickedMWEIndex = indexInDisplayList;
+      }
+      renderMWEFlatList(lastMWEResults);
+    } else {
+      // No shift: navigate to transcript position
+      if (item.sentence_index >= 0 && item.sentence_index < subtitles.length) {
+        videoPlayer.currentTime = subtitles[item.sentence_index].start;
+        const entry = transcriptList.children[item.sentence_index] as HTMLElement;
+        if (entry) entry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  });
+
+  return row;
+}
+
+function renderMWEActionBar(): void {
+  // Remove existing action bar
+  const existing = document.getElementById('mweActionBar');
+  if (existing) existing.remove();
+
+  if (selectedMWEs.size === 0) return;
+
+  // Check if all selected are known
+  const selectedResults = lastMWEResults.filter(r => selectedMWEs.has(r.normalized_form));
+  const seenForms = new Set<string>();
+  const uniqueSelected: MWEResult[] = [];
+  for (const r of selectedResults) {
+    if (!seenForms.has(r.normalized_form)) {
+      seenForms.add(r.normalized_form);
+      uniqueSelected.push(r);
+    }
+  }
+  const allKnown = uniqueSelected.length > 0 && uniqueSelected.every(r => r.is_known);
+
+  const bar = document.createElement('div');
+  bar.id = 'mweActionBar';
+  bar.className = 'absolute top-1 right-2 z-20 flex items-center gap-2 bg-bg-secondary border border-border-primary rounded-md px-2.5 py-1.5 shadow-lg';
+
+  const label = document.createElement('span');
+  label.className = 'text-[10px] text-gray-400';
+  label.textContent = `${selectedMWEs.size}`;
+
+  const btn = document.createElement('button');
+  btn.className = 'text-[10px] px-2.5 py-0.5 rounded font-semibold cursor-pointer transition-colors ' +
+    (allKnown
+      ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+      : 'bg-accent text-white hover:bg-accent/80');
+  btn.textContent = allKnown ? 'Mark unknown' : 'Mark known';
+
+  btn.addEventListener('click', async () => {
+    const forms = [...selectedMWEs];
+    const markKnown = !allKnown;
+    await window.api.markMWEsKnown({ normalizedForms: forms, known: markKnown });
+    for (const r of lastMWEResults) {
+      if (selectedMWEs.has(r.normalized_form)) {
+        r.is_known = markKnown;
+      }
+    }
+    selectedMWEs.clear();
+    lastClickedMWEIndex = -1;
+    renderMWEFlatList(lastMWEResults);
+  });
+
+  bar.appendChild(label);
+  bar.appendChild(btn);
+  // Append to mwePanel (the positioned parent) so it overlays above the scrollable list
+  mwePanel.style.position = 'relative';
+  mwePanel.appendChild(bar);
+}
+
+mweTabCategories.addEventListener('click', () => {
+  mweView = 'categories';
+  selectedMWEs.clear();
+  lastClickedMWEIndex = -1;
+  mweTabCategories.className = 'flex-1 py-1.5 text-[11px] font-semibold text-accent border-b-2 border-accent bg-transparent cursor-pointer transition-colors';
+  mweTabList.className = 'flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300';
+  if (lastMWEResults.length > 0) renderMWEByCategory(lastMWEResults);
+});
+
+mweTabList.addEventListener('click', () => {
+  mweView = 'list';
+  mweTabList.className = 'flex-1 py-1.5 text-[11px] font-semibold text-accent border-b-2 border-accent bg-transparent cursor-pointer transition-colors';
+  mweTabCategories.className = 'flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300';
+  if (lastMWEResults.length > 0) renderMWEFlatList(lastMWEResults);
+});
 
 // Load existing MWEs when a video is selected
 async function loadMWEsForFolder(folder: string): Promise<void> {

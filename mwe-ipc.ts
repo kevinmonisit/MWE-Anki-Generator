@@ -1,6 +1,6 @@
 import { app, ipcMain, BrowserWindow } from 'electron';
 import path from 'path';
-import { initMWEDatabase, runMWEPipeline, getMWEsForFolder, getAllMWETypes } from './mwe-pipeline';
+import { initMWEDatabase, runMWEPipeline, getMWEsForFolder, getAllMWETypes, markMWEsKnown } from './mwe-pipeline';
 
 let activeAbortController: AbortController | null = null;
 
@@ -52,5 +52,10 @@ export function registerMWEHandlers(getMainWindow: () => BrowserWindow | null, g
 
   ipcMain.handle('get-all-mwe-types', async () => {
     return getAllMWETypes();
+  });
+
+  ipcMain.handle('mark-mwes-known', async (_event, params: { normalizedForms: string[]; known: boolean }) => {
+    markMWEsKnown(params.normalizedForms, params.known);
+    return { success: true };
   });
 }

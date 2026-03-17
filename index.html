@@ -112,6 +112,10 @@
             <div id="mweProgress" class="hidden py-2 px-3 text-xs text-gray-400 border-b border-border-primary shrink-0">
               <div class="flex items-center gap-1.5"><span class="spinner"></span> <span id="mweProgressText">Extracting...</span></div>
             </div>
+            <div class="flex shrink-0 border-b border-border-primary">
+              <button id="mweTabCategories" class="flex-1 py-1.5 text-[11px] font-semibold text-accent border-b-2 border-accent bg-transparent cursor-pointer transition-colors">By Category</button>
+              <button id="mweTabList" class="flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300">All Unique</button>
+            </div>
             <div class="flex-1 overflow-y-auto py-1" id="mweList">
               <div class="py-6 px-3 text-gray-600 text-[12px] text-center">Click "Extract" to find multiword expressions in this transcript.</div>
             </div>
