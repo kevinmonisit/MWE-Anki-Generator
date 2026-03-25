@@ -10,6 +10,7 @@ let downloadWasCancelled = false;
 const DOWNLOADS_DIR = path.join(app.getPath('userData'), 'downloads');
 const SETTINGS_DIR = path.join(app.getPath('userData'), 'settings');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'user-settings.json');
+const COST_FILE = path.join(SETTINGS_DIR, 'api-cost.json');
 
 interface UserSettings {
   selectedDeck: string;
@@ -33,6 +34,31 @@ function saveSettings(settings: UserSettings): void {
 
 // Card storage on disk
 const CARDS_DIR = path.join(app.getPath('userData'), 'cards');
+
+// Lemma analysis storage on disk (per-video)
+const LEMMAS_DIR = path.join(app.getPath('userData'), 'lemmas');
+
+function loadLemmasFromDisk(folder: string): { lemmas: TranscriptLemmaData[]; analyzedAt: string } | null {
+  try {
+    const filePath = path.join(LEMMAS_DIR, `${folder}.json`);
+    const data = fs.readFileSync(filePath, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+}
+
+function saveLemmasToDisk(folder: string, lemmas: TranscriptLemmaData[]): void {
+  fs.mkdirSync(LEMMAS_DIR, { recursive: true });
+  fs.writeFileSync(
+    path.join(LEMMAS_DIR, `${folder}.json`),
+    JSON.stringify({ lemmas, analyzedAt: new Date().toISOString() }, null, 2)
+  );
+}
+
+interface TranscriptLemmaData {
+  lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; first_sentence_index: number; is_known: boolean;
+}
 
 function loadCardsFromDisk(folder: string): Card[] {
   try {
@@ -64,6 +90,7 @@ interface Card {
   createdAt: number;
   exported?: boolean;
   chunking?: boolean;
+  clozeHint?: string;
 }
 
 // Load OpenAI API key from .env.local
@@ -79,6 +106,60 @@ function loadOpenAIKey(): string {
 }
 
 const OPENAI_API_KEY = loadOpenAIKey();
+
+// --- API Cost Tracking ---
+// Pricing per 1M tokens (USD) — update these as models change
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'gpt-5.4':      { input: 2.50, output: 10.00 },
+  'gpt-5.4-mini': { input: 0.15, output: 0.60 },
+  'gpt-5.1':      { input: 2.00, output: 8.00 },
+};
+
+interface ApiCostEntry {
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  source: string;
+  timestamp: number;
+}
+
+interface ApiCostStore {
+  totalCost: number;
+  entries: ApiCostEntry[];
+}
+
+function loadApiCost(): ApiCostStore {
+  try {
+    fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+    const data = fs.readFileSync(COST_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return { totalCost: 0, entries: [] };
+  }
+}
+
+function saveApiCostToDisk(): void {
+  fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+  fs.writeFileSync(COST_FILE, JSON.stringify({ totalCost: totalApiCost, entries: apiCostEntries }, null, 2));
+}
+
+const costStore = loadApiCost();
+let apiCostEntries: ApiCostEntry[] = costStore.entries;
+let totalApiCost = costStore.totalCost;
+
+function trackApiCost(model: string, promptTokens: number, completionTokens: number, source: string): void {
+  const pricing = MODEL_PRICING[model] || { input: 2.50, output: 10.00 };
+  const cost = (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000;
+  totalApiCost += cost;
+  apiCostEntries.push({ model, promptTokens, completionTokens, costUsd: cost, source, timestamp: Date.now() });
+  saveApiCostToDisk();
+
+  // Notify renderer
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('api-cost-update', { totalCost: totalApiCost, entries: apiCostEntries });
+  }
+}
 
 interface ExplainParams {
   selectedText: string;
@@ -132,7 +213,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   createWindow();
-  registerMWEHandlers(() => mainWindow, () => OPENAI_API_KEY);
+  registerMWEHandlers(() => mainWindow, () => OPENAI_API_KEY, trackApiCost);
 });
 
 app.on('window-all-closed', () => {
@@ -141,6 +222,15 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
+
+// IPC: API cost tracking
+ipcMain.handle('get-api-cost', async () => ({ totalCost: totalApiCost, entries: apiCostEntries }));
+ipcMain.handle('reset-api-cost', async () => {
+  apiCostEntries = [];
+  totalApiCost = 0;
+  saveApiCostToDisk();
+  return { success: true };
 });
 
 // IPC: User settings
@@ -329,20 +419,26 @@ Example format: {"explanation":"...","translation":"..."}`;
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4.1',
+        model: 'gpt-5.4',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 300,
+        max_completion_tokens: 300,
         temperature: 0.3,
       }),
     });
 
     const json = await response.json() as {
       choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens: number; completion_tokens: number };
+      model?: string;
       error?: { message?: string };
     };
 
     if (json.error) {
       return { success: false, error: json.error.message || 'OpenAI API error' };
+    }
+
+    if (json.usage) {
+      trackApiCost(json.model || 'gpt-5.4', json.usage.prompt_tokens, json.usage.completion_tokens, 'explain');
     }
 
     const raw = json.choices?.[0]?.message?.content?.trim() || '{}';
@@ -358,6 +454,16 @@ Example format: {"explanation":"...","translation":"..."}`;
     }
     if (!explanation && !translation) explanation = 'No explanation returned.';
     return { success: true, translation, explanation };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// IPC: Get cloze hint for chunking
+ipcMain.handle('get-cloze-hint', async (_event, params: { selectedText: string; fullSentence: string; translation: string }) => {
+  try {
+    const hint = await getClozeHint(params.selectedText, params.fullSentence, params.translation);
+    return { success: true, hint };
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
@@ -383,6 +489,140 @@ ipcMain.handle('anki-invoke', async (_event, action: string, params?: Record<str
 // IPC: Get absolute path for a download folder
 ipcMain.handle('get-download-path', async (_event, folder: string) => {
   return path.join(DOWNLOADS_DIR, folder);
+});
+
+// IPC: Fetch notes from Anki decks (Basic note type only, Front field)
+ipcMain.handle('fetch-anki-notes', async (_event, deckNames: string[]) => {
+  try {
+    const allSentences: string[] = [];
+
+    for (const deck of deckNames) {
+      // Find all Basic notes in this deck
+      const notesRes = await ankiRequest('findNotes', { query: `"deck:${deck}" "note:Basic"` });
+      if (notesRes.error) {
+        return { success: false, error: `Failed to find notes in ${deck}: ${notesRes.error}` };
+      }
+      const noteIds = notesRes.result as number[];
+      if (noteIds.length === 0) continue;
+
+      // Get note info in batches of 100
+      for (let i = 0; i < noteIds.length; i += 100) {
+        const batch = noteIds.slice(i, i + 100);
+        const infoRes = await ankiRequest('notesInfo', { notes: batch });
+        if (infoRes.error) continue;
+
+        const notes = infoRes.result as { fields: Record<string, { value: string }> }[];
+        for (const note of notes) {
+          const front = note.fields?.Front?.value || '';
+          // Strip HTML tags
+          const cleanFront = front.replace(/<[^>]*>/g, '').trim();
+          if (cleanFront) allSentences.push(cleanFront);
+        }
+      }
+    }
+
+    // Deduplicate
+    const unique = [...new Set(allSentences)];
+    return { success: true, sentences: unique, totalNotes: unique.length };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+});
+
+// IPC: Extract lemmas using SpaCy (Python 3.13 venv)
+ipcMain.handle('extract-lemmas', async (_event, sentences: string[]) => {
+  return new Promise((resolve) => {
+    const venvPython = path.join(__dirname, '..', '.venv-spacy', 'bin', 'python3.13');
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'extract_lemmas.py');
+
+    const proc = spawn(venvPython, [scriptPath], {
+      cwd: path.join(__dirname, '..'),
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdin.write(JSON.stringify(sentences));
+    proc.stdin.end();
+
+    proc.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+    proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+    proc.on('close', (code: number | null) => {
+      if (code === 0) {
+        try {
+          const lemmas = JSON.parse(stdout) as { lemma: string; pos: string }[];
+          resolve({ success: true, lemmas });
+        } catch {
+          resolve({ success: false, error: 'Failed to parse lemma output' });
+        }
+      } else {
+        resolve({ success: false, error: stderr || `SpaCy process exited with code ${code}` });
+      }
+    });
+
+    proc.on('error', (err: Error) => {
+      resolve({ success: false, error: err.message });
+    });
+  });
+});
+
+// IPC: Analyze transcript lemmas — extract unknown lemmas from SRT sorted by importance
+ipcMain.handle('analyze-transcript-lemmas', async (_event, folder: string) => {
+  return new Promise((resolve) => {
+    const downloadsDir = path.join(app.getPath('userData'), 'downloads');
+    const srtPath = path.join(downloadsDir, folder, 'video.srt');
+
+    if (!fs.existsSync(srtPath)) {
+      resolve({ success: false, error: 'No SRT file found for this video' });
+      return;
+    }
+
+    const venvPython = path.join(__dirname, '..', '.venv-spacy', 'bin', 'python3.13');
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'transcript_lemmas.py');
+
+    const proc = spawn(venvPython, [scriptPath, srtPath], {
+      cwd: path.join(__dirname, '..'),
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+    proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+    proc.on('close', (code: number | null) => {
+      if (code === 0) {
+        try {
+          const allLemmas = JSON.parse(stdout) as { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; first_sentence_index: number }[];
+
+          // Query known lemmas from DB and tag each lemma
+          const dbPath = path.join(app.getPath('userData'), 'mwe.db');
+          let knownSet = new Set<string>();
+          if (fs.existsSync(dbPath)) {
+            const Database = require('better-sqlite3');
+            const db = new Database(dbPath, { readonly: true });
+            const knownRows = db.prepare('SELECT lemma FROM known_lemmas').all() as { lemma: string }[];
+            db.close();
+            knownSet = new Set(knownRows.map((r: { lemma: string }) => r.lemma.toLowerCase()));
+          }
+
+          const taggedLemmas = allLemmas.map(l => ({ ...l, is_known: knownSet.has(l.lemma) }));
+          const knownCount = taggedLemmas.filter(l => l.is_known).length;
+          saveLemmasToDisk(folder, taggedLemmas);
+          resolve({ success: true, lemmas: taggedLemmas, totalInTranscript: allLemmas.length, knownCount, unknownCount: allLemmas.length - knownCount });
+        } catch {
+          resolve({ success: false, error: 'Failed to parse lemma output' });
+        }
+      } else {
+        resolve({ success: false, error: stderr || `Script exited with code ${code}` });
+      }
+    });
+
+    proc.on('error', (err: Error) => {
+      resolve({ success: false, error: err.message });
+    });
+  });
 });
 
 // --- subs2srs export to Anki ---
@@ -509,16 +749,22 @@ async function getClozeHint(selectedText: string, fullSentence: string, translat
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 30,
+        max_completion_tokens: 30,
         temperature: 0.3,
       }),
     });
 
     const json = await response.json() as {
       choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens: number; completion_tokens: number };
+      model?: string;
     };
+
+    if (json.usage) {
+      trackApiCost(json.model || 'gpt-5.4-mini', json.usage.prompt_tokens, json.usage.completion_tokens, 'cloze-hint');
+    }
 
     return json.choices?.[0]?.message?.content?.trim() || translation || 'hint';
   } catch {
@@ -580,6 +826,7 @@ interface ExportCard {
   translation: string;
   selectedText: string;
   targetLineBefore: string;
+  clozeHint?: string;
   targetLineAfter: string;
   startTime: number;
   endTime: number;
@@ -684,7 +931,7 @@ ipcMain.handle('export-cards-to-anki', async (_event, params: ExportParams): Pro
         // If chunking is enabled for this card, also create a cloze card
         if (card.chunking && chunkingDeckName) {
           try {
-            const hint = await getClozeHint(card.selectedText, card.expression, card.translation || '');
+            const hint = card.clozeHint || await getClozeHint(card.selectedText, card.expression, card.translation || '');
             // Build cloze text: replace selectedText with cloze deletion
             const clozeText = card.expression.replace(
               card.selectedText,

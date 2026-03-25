@@ -13,6 +13,7 @@ interface Card {
   createdAt: number;
   exported?: boolean;
   chunking?: boolean;
+  clozeHint?: string;
 }
 
 interface MWEResult {
@@ -40,6 +41,42 @@ interface MWEProgress {
   sentenceStart?: number;
   sentenceEnd?: number;
   totalSentences?: number;
+}
+
+interface CorpusProgress {
+  stage: string;
+  current?: number;
+  total?: number;
+  message: string;
+}
+
+interface CorpusStats {
+  totalLemmas: number;
+  totalMWEs: number;
+  knownMWEs: number;
+  unknownMWEs: number;
+  lemmasByPos: { pos: string; count: number }[];
+  mwesByCategory: { category: string; count: number }[];
+  imports: { deck_name: string; sentence_count: number; lemma_count: number; mwe_count: number; imported_at: string }[];
+}
+
+interface TranscriptLemma {
+  lemma: string;
+  pos: string;
+  transcript_count: number;
+  general_freq: number;
+  score: number;
+  first_sentence_index: number;
+  is_known: boolean;
+}
+
+interface TranscriptLemmaResult {
+  success: boolean;
+  lemmas?: TranscriptLemma[];
+  totalInTranscript?: number;
+  knownCount?: number;
+  unknownCount?: number;
+  error?: string;
 }
 
 interface ElectronAPI {
@@ -70,7 +107,7 @@ interface ElectronAPI {
   saveCards: (folder: string, cards: Card[]) => Promise<{ success: boolean }>;
   exportCardsToAnki: (params: {
     videoDir: string;
-    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number; chunking?: boolean }[];
+    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number; chunking?: boolean; clozeHint?: string }[];
     deckName: string;
     chunkingDeckName: string;
     videoTitle: string;
@@ -82,6 +119,19 @@ interface ElectronAPI {
   getMWEsForFolder: (folder: string) => Promise<MWEResult[]>;
   getAllMWETypes: () => Promise<MWEType[]>;
   markMWEsKnown: (params: { normalizedForms: string[]; known: boolean }) => Promise<{ success: boolean }>;
+  getClozeHint: (params: { selectedText: string; fullSentence: string; translation: string }) => Promise<{ success: boolean; hint?: string; error?: string }>;
+  getApiCost: () => Promise<{ totalCost: number; entries: { model: string; promptTokens: number; completionTokens: number; costUsd: number; source: string; timestamp: number }[] }>;
+  resetApiCost: () => Promise<{ success: boolean }>;
+  onApiCostUpdate: (callback: (data: { totalCost: number }) => void) => void;
+  fetchAnkiNotes: (deckNames: string[]) => Promise<{ success: boolean; sentences?: string[]; totalNotes?: number; error?: string }>;
+  extractLemmas: (sentences: string[]) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string }[]; error?: string }>;
+  buildAnkiCorpus: (params: { deckName: string; sentences: string[]; lemmas: { lemma: string; pos: string }[] }) => Promise<{ success: boolean; lemmaCount?: number; mwes?: MWEResult[]; sentenceCount?: number; skippedCount?: number; error?: string }>;
+  approveCorpusMWEs: (params: { deckName: string; mwes: MWEResult[]; sentenceCount: number; lemmaCount: number; processedSentences?: string[] }) => Promise<{ success: boolean; stored?: number }>;
+  cancelCorpusBuild: () => Promise<void>;
+  onCorpusProgress: (callback: (progress: CorpusProgress) => void) => void;
+  getCorpusStats: () => Promise<CorpusStats>;
+  isCorpusImported: (deckName: string) => Promise<boolean>;
+  analyzeTranscriptLemmas: (folder: string) => Promise<TranscriptLemmaResult>;
 }
 
 interface Window {

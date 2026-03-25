@@ -14,6 +14,8 @@
       class="flex-1 py-2.5 px-3.5 border border-border-primary rounded-lg bg-bg-primary text-gray-300 text-sm outline-none transition-colors focus:border-accent" />
     <button id="downloadBtn" onclick="startDownload()"
       class="py-2.5 px-6 border-none rounded-lg bg-accent text-white text-sm font-semibold cursor-pointer transition-colors whitespace-nowrap hover:bg-accent-hover disabled:bg-gray-600 disabled:cursor-not-allowed">Download</button>
+    <button id="corpusNavBtn"
+      class="py-2.5 px-4 border border-border-primary rounded-lg bg-bg-primary text-gray-400 text-sm font-semibold cursor-pointer transition-colors whitespace-nowrap hover:bg-bg-secondary hover:text-accent hover:border-accent">Corpus</button>
   </div>
 
   <!-- Anki Status Bar -->
@@ -34,6 +36,11 @@
         <option value="">Select deck...</option>
       </select>
     </div>
+    <div class="ml-auto flex items-center gap-1.5 text-gray-500">
+      <span class="text-gray-600 text-[11px]">API Cost:</span>
+      <span class="text-[11px] font-mono text-yellow-500" id="apiCostDisplay">$0.0000</span>
+      <button class="text-gray-600 text-[10px] hover:text-gray-400 cursor-pointer bg-transparent border-none" id="apiCostResetBtn" title="Reset cost counter">&#x21bb;</button>
+    </div>
   </div>
 
   <!-- Progress Pipeline -->
@@ -50,7 +57,7 @@
   </div>
 
   <!-- Main Layout -->
-  <div class="flex-1 flex overflow-hidden min-h-0">
+  <div class="flex-1 flex overflow-hidden min-h-0" id="mainPage">
 
     <!-- Sidebar -->
     <div class="w-[260px] bg-bg-secondary border-r border-border-primary flex flex-col shrink-0" id="sidebar">
@@ -105,9 +112,12 @@
           <div class="shrink-0 w-1.5 bg-border-primary cursor-col-resize transition-colors relative z-10 hover:bg-accent" id="mweResizeHandle"></div>
           <!-- MWE Panel -->
           <div class="w-[280px] shrink-0 flex flex-col bg-bg-secondary border-l border-border-primary overflow-hidden" id="mwePanel">
-            <div class="py-2.5 px-3 bg-bg-secondary font-semibold text-sm text-accent border-b border-border-primary shrink-0 flex items-center justify-between">
-              <span>MWEs</span>
-              <button id="extractMWEsBtn" class="py-1 px-2.5 border-none rounded-md bg-accent text-white text-[11px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover disabled:bg-gray-700 disabled:cursor-not-allowed">Extract</button>
+            <div class="py-2.5 px-3 bg-bg-secondary font-semibold text-sm text-accent border-b border-border-primary shrink-0">
+              <div class="flex items-center justify-between">
+                <span>MWEs</span>
+                <button id="extractMWEsBtn" class="py-1 px-2.5 border-none rounded-md bg-accent text-white text-[11px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover disabled:bg-gray-700 disabled:cursor-not-allowed">Extract</button>
+              </div>
+              <div class="text-[9px] text-gray-600 font-normal mt-1">Select MWEs then <kbd class="px-1 py-px rounded bg-bg-primary border border-border-primary text-gray-500 font-mono text-[9px]">⌘D</kbd> to toggle known</div>
             </div>
             <div id="mweProgress" class="hidden py-2 px-3 text-xs text-gray-400 border-b border-border-primary shrink-0">
               <div class="flex items-center gap-1.5"><span class="spinner"></span> <span id="mweProgressText">Extracting...</span></div>
@@ -115,6 +125,7 @@
             <div class="flex shrink-0 border-b border-border-primary">
               <button id="mweTabCategories" class="flex-1 py-1.5 text-[11px] font-semibold text-accent border-b-2 border-accent bg-transparent cursor-pointer transition-colors">By Category</button>
               <button id="mweTabList" class="flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300">All Unique</button>
+              <button id="mweTabLemmas" class="flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300">Lemmas</button>
             </div>
             <div class="flex-1 overflow-y-auto py-1" id="mweList">
               <div class="py-6 px-3 text-gray-600 text-[12px] text-center">Click "Extract" to find multiword expressions in this transcript.</div>
@@ -125,12 +136,134 @@
     </div>
   </div>
 
+  <!-- Corpus Page (hidden by default) -->
+  <div id="corpusPage" class="hidden flex-1 flex flex-col overflow-hidden">
+    <div class="flex-1 flex overflow-hidden min-h-0">
+
+      <!-- Left: Deck Selection -->
+      <div class="w-[320px] bg-bg-secondary border-r border-border-primary flex flex-col shrink-0">
+        <div class="py-3 px-4 font-semibold text-[13px] text-accent border-b border-border-primary uppercase tracking-wider shrink-0">
+          Select Anki Decks
+        </div>
+        <div class="flex-1 overflow-y-auto py-2 px-3" id="corpusDeckList">
+          <div class="py-6 text-gray-600 text-[13px] text-center">Loading decks...</div>
+        </div>
+        <div class="shrink-0 p-3 border-t border-border-primary space-y-2">
+          <div class="text-[11px] text-gray-500" id="corpusDeckInfo">No decks selected</div>
+          <div class="flex gap-2">
+            <button id="corpusFetchBtn"
+              class="flex-1 py-2 border-none rounded-md bg-accent text-white text-xs font-semibold cursor-pointer transition-colors hover:bg-accent-hover disabled:bg-gray-700 disabled:cursor-not-allowed" disabled>
+              Fetch Sentences
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Stats Dashboard + Build -->
+      <div class="flex-1 flex flex-col overflow-hidden min-w-0">
+
+        <!-- Sentence Preview + Build -->
+        <div id="corpusPreview" class="hidden shrink-0 border-b border-border-primary">
+          <div class="py-2.5 px-4 bg-bg-secondary font-semibold text-sm text-accent border-b border-border-primary shrink-0 flex items-center justify-between">
+            <span>Sentences to Process</span>
+            <span class="text-xs font-normal text-gray-500" id="corpusSentenceCount"></span>
+          </div>
+          <div class="max-h-[200px] overflow-y-auto py-2 px-4" id="corpusSentenceList"></div>
+          <div class="p-3 border-t border-border-primary flex gap-2 items-center">
+            <button id="corpusBuildBtn"
+              class="py-2 px-5 border-none rounded-md bg-green-600 text-white text-xs font-semibold cursor-pointer transition-colors hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed">
+              Build Corpus (Lemmas + MWEs)
+            </button>
+            <button id="corpusCancelBtn"
+              class="hidden py-2 px-4 border border-red-600 rounded-md bg-transparent text-red-400 text-xs font-semibold cursor-pointer transition-colors hover:bg-red-600/20">
+              Cancel
+            </button>
+            <div id="corpusBuildProgress" class="hidden flex items-center gap-1.5 text-xs text-gray-400">
+              <span class="spinner"></span>
+              <span id="corpusBuildProgressText">Building...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- MWE Review Panel -->
+        <div id="corpusMWEReview" class="hidden flex-1 flex flex-col overflow-hidden border-b border-border-primary">
+          <div class="py-2.5 px-4 bg-bg-secondary font-semibold text-sm border-b border-border-primary shrink-0 flex items-center justify-between">
+            <span class="text-yellow-400">Review Extracted MWEs</span>
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-normal text-gray-500" id="corpusMWEReviewCount"></span>
+              <button id="corpusMWESelectAll" class="text-[10px] text-gray-500 hover:text-accent cursor-pointer bg-transparent border-none">Select All</button>
+              <button id="corpusMWEDeselectAll" class="text-[10px] text-gray-500 hover:text-accent cursor-pointer bg-transparent border-none">Deselect All</button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-y-auto min-h-0" id="corpusMWEReviewList"></div>
+          <div class="p-3 border-t border-border-primary flex gap-2 items-center shrink-0">
+            <button id="corpusMWEApproveBtn"
+              class="py-2 px-5 border-none rounded-md bg-green-600 text-white text-xs font-semibold cursor-pointer transition-colors hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed">
+              Approve Selected
+            </button>
+            <span class="text-[11px] text-gray-500" id="corpusMWESelectedCount">0 selected</span>
+          </div>
+        </div>
+
+        <!-- Stats Dashboard -->
+        <div class="flex-1 overflow-y-auto p-5" id="corpusStatsArea">
+          <div class="max-w-3xl mx-auto">
+            <h2 class="text-lg font-bold text-accent mb-4">Corpus Dashboard</h2>
+
+            <!-- Top-level stats cards -->
+            <div class="grid grid-cols-4 gap-3 mb-5" id="corpusStatCards">
+              <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary">
+                <div class="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Unique Lemmas</div>
+                <div class="text-2xl font-bold text-white" id="statTotalLemmas">0</div>
+              </div>
+              <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary">
+                <div class="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Total MWEs</div>
+                <div class="text-2xl font-bold text-white" id="statTotalMWEs">0</div>
+              </div>
+              <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary">
+                <div class="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Known MWEs</div>
+                <div class="text-2xl font-bold text-green-400" id="statKnownMWEs">0</div>
+              </div>
+              <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary">
+                <div class="text-[11px] text-gray-500 uppercase tracking-wider mb-1">Unknown MWEs</div>
+                <div class="text-2xl font-bold text-red-400" id="statUnknownMWEs">0</div>
+              </div>
+            </div>
+
+            <!-- Lemmas by POS -->
+            <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary mb-4">
+              <div class="text-xs text-gray-500 uppercase tracking-wider mb-3">Lemmas by Part of Speech</div>
+              <div id="statLemmasByPos" class="space-y-1.5"></div>
+            </div>
+
+            <!-- MWEs by Category -->
+            <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary mb-4">
+              <div class="text-xs text-gray-500 uppercase tracking-wider mb-3">MWEs by PARSEME Category</div>
+              <div id="statMWEsByCategory" class="space-y-1.5"></div>
+            </div>
+
+            <!-- Import History -->
+            <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary">
+              <div class="text-xs text-gray-500 uppercase tracking-wider mb-3">Import History</div>
+              <div id="statImports" class="space-y-2"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- Card Modal -->
   <div id="cardModal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50">
-    <div class="bg-bg-secondary rounded-lg p-6 max-w-md w-full mx-4 shadow-xl border border-border-primary" id="cardModalInner">
-      <video id="cardModalVideo" class="w-full rounded-md mb-4" controls></video>
-      <div id="cardModalContent" class="space-y-4"></div>
-      <button id="cardModalClose" class="mt-4 w-full py-2 border-none rounded-md bg-accent text-white text-sm font-semibold cursor-pointer transition-colors hover:bg-accent-hover">Close</button>
+    <div class="bg-bg-secondary rounded-lg p-5 max-w-3xl w-full mx-4 shadow-xl border border-border-primary" id="cardModalInner">
+      <div class="flex gap-5">
+        <div class="w-72 shrink-0 flex flex-col gap-3">
+          <video id="cardModalVideo" class="w-full rounded-md" controls></video>
+          <button id="cardModalClose" class="w-full py-2 border-none rounded-md bg-accent text-white text-sm font-semibold cursor-pointer transition-colors hover:bg-accent-hover">Close</button>
+        </div>
+        <div id="cardModalContent" class="flex-1 min-w-0 space-y-4 overflow-y-auto max-h-80"></div>
+      </div>
     </div>
   </div>
 

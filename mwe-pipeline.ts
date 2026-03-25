@@ -70,6 +70,28 @@ export function initMWEDatabase(dbPath: string): Database.Database {
       transcript_file TEXT,
       extracted_at TEXT DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS known_lemmas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lemma TEXT UNIQUE NOT NULL,
+      pos TEXT,
+      source_deck TEXT NOT NULL,
+      first_seen_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS corpus_imports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      deck_name TEXT UNIQUE NOT NULL,
+      sentence_count INTEGER NOT NULL DEFAULT 0,
+      lemma_count INTEGER NOT NULL DEFAULT 0,
+      mwe_count INTEGER NOT NULL DEFAULT 0,
+      imported_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS processed_sentences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sentence_hash TEXT UNIQUE NOT NULL,
+      sentence_text TEXT NOT NULL,
+      source_deck TEXT NOT NULL,
+      processed_at TEXT DEFAULT (datetime('now'))
+    );
   `);
   // Migration: add is_known column for existing databases
   try {
@@ -85,7 +107,15 @@ export function getMWEDb(): Database.Database {
 
 // --- OpenAI helpers ---
 
-async function callOpenAI(apiKey: string, systemPrompt: string, userPrompt: string, maxTokens: number = 4000, signal?: AbortSignal, model: string = 'gpt-4.1'): Promise<string> {
+export type CostCallback = (model: string, promptTokens: number, completionTokens: number, source: string) => void;
+
+let costCallback: CostCallback | undefined;
+
+export function setCostCallback(cb: CostCallback): void {
+  costCallback = cb;
+}
+
+async function callOpenAI(apiKey: string, systemPrompt: string, userPrompt: string, maxTokens: number = 4000, signal?: AbortSignal, model: string = 'gpt-5.4'): Promise<string> {
   const maxRetries = 5;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const bodyStr = JSON.stringify({
@@ -94,7 +124,7 @@ async function callOpenAI(apiKey: string, systemPrompt: string, userPrompt: stri
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: maxTokens,
+      max_completion_tokens: maxTokens,
       temperature: 0.3,
     });
     const response = await net.fetch('https://api.openai.com/v1/chat/completions', {
@@ -109,6 +139,8 @@ async function callOpenAI(apiKey: string, systemPrompt: string, userPrompt: stri
 
     const json = await response.json() as {
       choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens: number; completion_tokens: number };
+      model?: string;
       error?: { message?: string; type?: string; code?: string };
     };
 
@@ -123,6 +155,12 @@ async function callOpenAI(apiKey: string, systemPrompt: string, userPrompt: stri
       }
       throw new Error(json.error.message || 'OpenAI API error');
     }
+
+    if (json.usage && costCallback) {
+      const source = model === 'gpt-5.1' ? 'mwe-normalize' : 'mwe-extract';
+      costCallback(json.model || model, json.usage.prompt_tokens, json.usage.completion_tokens, source);
+    }
+
     return json.choices?.[0]?.message?.content?.trim() || '[]';
   }
   throw new Error('Max retries exceeded');
@@ -162,7 +200,7 @@ async function normalizeMWEBatch(apiKey: string, mwes: MWEExtracted[], signal?: 
     `Normalize these MWEs:\n\n${JSON.stringify(input, null, 2)}`,
     4000,
     signal,
-    'gpt-4.1'
+    'gpt-5.1'
   );
 
   try {
@@ -245,7 +283,8 @@ export async function runMWEPipeline(
   folder: string,
   subtitles: { index: number; text: string }[],
   onProgress: (progress: MWEProgress) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  dryRun?: boolean
 ): Promise<MWEResult[]> {
   const db = getMWEDb();
   const allExtracted: MWEExtracted[] = [];
@@ -315,9 +354,60 @@ export async function runMWEPipeline(
     }
   }
 
-  // Step 3: Store in database
+  // Step 3: Store in database (or return for review if dryRun)
+  if (dryRun) {
+    // Build results without storing
+    const normMap = new Map<string, MWENormalized>();
+    for (const n of allNormalized) {
+      normMap.set(n.surface_form, n);
+    }
+    const sentenceMap = new Map<number, string>();
+    for (const s of subtitles) {
+      sentenceMap.set(s.index, s.text);
+    }
+    return allExtracted.map(mwe => {
+      const norm = normMap.get(mwe.surface_form);
+      return {
+        normalized_form: norm?.normalized_form || mwe.surface_form.toLowerCase(),
+        surface_form: mwe.surface_form,
+        categories: mwe.categories,
+        context_note: mwe.context_note || '',
+        sentence_text: sentenceMap.get(mwe.sentence_index) || '',
+        sentence_index: mwe.sentence_index,
+        is_new: true,
+        is_known: false,
+      };
+    });
+  }
+
   onProgress({ stage: 'storing' });
   return storeMWEs(db, allExtracted, allNormalized, subtitles, folder);
+}
+
+export function storeApprovedMWEs(approvedMWEs: MWEResult[], folder: string): number {
+  const db = getMWEDb();
+  const insertType = db.prepare(
+    'INSERT OR IGNORE INTO mwe_types (normalized_form, categories, context_note) VALUES (?, ?, ?)'
+  );
+  const getType = db.prepare('SELECT id FROM mwe_types WHERE normalized_form = ?');
+  const insertInstance = db.prepare(
+    'INSERT INTO mwe_instances (mwe_type_id, surface_form, sentence_index, sentence_text, transcript_file) VALUES (?, ?, ?, ?, ?)'
+  );
+
+  let stored = 0;
+  const transaction = db.transaction(() => {
+    for (const mwe of approvedMWEs) {
+      const categoriesJson = JSON.stringify(mwe.categories);
+      insertType.run(mwe.normalized_form, categoriesJson, mwe.context_note || null);
+      const typeRow = getType.get(mwe.normalized_form) as { id: number } | undefined;
+      if (typeRow) {
+        insertInstance.run(typeRow.id, mwe.surface_form, mwe.sentence_index, mwe.sentence_text, folder);
+        stored++;
+      }
+    }
+  });
+  transaction();
+  return stored;
 }
 
 // --- Query helpers ---
@@ -371,4 +461,121 @@ export function getAllMWETypes(): MWETypeRow[] {
     context_note: r.context_note || '',
     frequency: r.frequency,
   }));
+}
+
+// --- Known lemmas ---
+
+export interface LemmaEntry {
+  lemma: string;
+  pos: string;
+}
+
+export function storeLemmas(lemmas: LemmaEntry[], sourceDeck: string): number {
+  const db = getMWEDb();
+  const insert = db.prepare('INSERT OR IGNORE INTO known_lemmas (lemma, pos, source_deck) VALUES (?, ?, ?)');
+  const transaction = db.transaction(() => {
+    for (const l of lemmas) {
+      insert.run(l.lemma, l.pos, sourceDeck);
+    }
+  });
+  transaction();
+  return lemmas.length;
+}
+
+export function getCorpusStats(): {
+  totalLemmas: number;
+  totalMWEs: number;
+  knownMWEs: number;
+  unknownMWEs: number;
+  lemmasByPos: { pos: string; count: number }[];
+  mwesByCategory: { category: string; count: number }[];
+  imports: { deck_name: string; sentence_count: number; lemma_count: number; mwe_count: number; imported_at: string }[];
+} {
+  const db = getMWEDb();
+
+  const totalLemmas = (db.prepare('SELECT COUNT(*) as c FROM known_lemmas').get() as { c: number }).c;
+  const totalMWEs = (db.prepare('SELECT COUNT(*) as c FROM mwe_types').get() as { c: number }).c;
+  const knownMWEs = (db.prepare('SELECT COUNT(*) as c FROM mwe_types WHERE is_known = 1').get() as { c: number }).c;
+
+  const lemmasByPos = db.prepare('SELECT pos, COUNT(*) as count FROM known_lemmas GROUP BY pos ORDER BY count DESC').all() as { pos: string; count: number }[];
+
+  // Count MWEs by category (categories stored as JSON array)
+  const allMweRows = db.prepare('SELECT categories FROM mwe_types').all() as { categories: string }[];
+  const catCounts = new Map<string, number>();
+  for (const row of allMweRows) {
+    try {
+      const cats = JSON.parse(row.categories) as string[];
+      for (const cat of cats) {
+        catCounts.set(cat, (catCounts.get(cat) || 0) + 1);
+      }
+    } catch { /* skip malformed */ }
+  }
+  const mwesByCategory = Array.from(catCounts.entries())
+    .map(([category, count]) => ({ category, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const imports = db.prepare('SELECT deck_name, sentence_count, lemma_count, mwe_count, imported_at FROM corpus_imports ORDER BY imported_at DESC').all() as { deck_name: string; sentence_count: number; lemma_count: number; mwe_count: number; imported_at: string }[];
+
+  return { totalLemmas, totalMWEs, knownMWEs, unknownMWEs: totalMWEs - knownMWEs, lemmasByPos, mwesByCategory, imports };
+}
+
+export function recordCorpusImport(deckName: string, sentenceCount: number, lemmaCount: number, mweCount: number): void {
+  const db = getMWEDb();
+  db.prepare(`
+    INSERT INTO corpus_imports (deck_name, sentence_count, lemma_count, mwe_count)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(deck_name) DO UPDATE SET
+      sentence_count = excluded.sentence_count,
+      lemma_count = excluded.lemma_count,
+      mwe_count = excluded.mwe_count,
+      imported_at = datetime('now')
+  `).run(deckName, sentenceCount, lemmaCount, mweCount);
+}
+
+export function isCorpusImported(deckName: string): boolean {
+  const db = getMWEDb();
+  const row = db.prepare('SELECT id FROM corpus_imports WHERE deck_name = ?').get(deckName);
+  return !!row;
+}
+
+// --- Processed sentences tracking ---
+
+function sentenceHash(text: string): string {
+  // Normalize whitespace and lowercase for consistent deduplication
+  return text.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+export function getProcessedSentences(): Set<string> {
+  const db = getMWEDb();
+  const rows = db.prepare('SELECT sentence_hash FROM processed_sentences').all() as { sentence_hash: string }[];
+  return new Set(rows.map(r => r.sentence_hash));
+}
+
+export function storeProcessedSentences(sentences: string[], sourceDeck: string): number {
+  const db = getMWEDb();
+  const insert = db.prepare('INSERT OR IGNORE INTO processed_sentences (sentence_hash, sentence_text, source_deck) VALUES (?, ?, ?)');
+  let count = 0;
+  const transaction = db.transaction(() => {
+    for (const s of sentences) {
+      const hash = sentenceHash(s);
+      const result = insert.run(hash, s, sourceDeck);
+      if (result.changes > 0) count++;
+    }
+  });
+  transaction();
+  return count;
+}
+
+export function filterUnprocessedSentences(sentences: string[]): { newSentences: string[]; skippedCount: number } {
+  const processed = getProcessedSentences();
+  const newSentences: string[] = [];
+  let skippedCount = 0;
+  for (const s of sentences) {
+    if (processed.has(sentenceHash(s))) {
+      skippedCount++;
+    } else {
+      newSentences.push(s);
+    }
+  }
+  return { newSentences, skippedCount };
 }

@@ -226,19 +226,73 @@ async function renderCardsView(folder: string, title: string): Promise<void> {
   for (const card of cards) {
     const isExported = !!card.exported;
     const item = document.createElement('div');
-    item.className = 'group py-2 px-4 cursor-pointer transition-colors duration-150 flex items-center hover:bg-accent/10'
+    item.className = 'group py-2 px-4 cursor-pointer transition-colors duration-150 hover:bg-accent/10'
       + (isExported ? ' bg-green-900/20 border-l-[3px] border-l-green-500/60' : ' border-l-[3px] border-l-transparent');
     item.innerHTML = `
-      <label class="w-8 shrink-0 flex items-center justify-center cursor-pointer" title="${!chunkingEnabled ? 'Select a chunking deck to enable' : isExported ? 'Already exported' : 'Send cloze card to chunking deck'}">
-        <input type="checkbox" class="chunking-cb accent-yellow-500 w-3 h-3 cursor-pointer" ${card.chunking ? 'checked' : ''} ${(!chunkingEnabled || isExported) ? 'disabled' : ''}>
-      </label>
-      <span class="w-px self-stretch bg-border-primary mx-4 shrink-0"></span>
-      <div class="flex-1 min-w-0">
-        <div class="text-[13px] font-medium overflow-hidden text-ellipsis whitespace-nowrap ${isExported ? 'text-green-400' : 'text-gray-300'}">${escapeHtml(card.selectedText)}</div>
-        <div class="text-[11px] text-gray-600 overflow-hidden text-ellipsis whitespace-nowrap mt-0.5">${escapeHtml(card.expression)}</div>
+      <div class="flex items-center">
+        <label class="w-8 shrink-0 flex items-center justify-center cursor-pointer" title="${!chunkingEnabled ? 'Select a chunking deck to enable' : isExported ? 'Already exported' : 'Send cloze card to chunking deck'}">
+          <input type="checkbox" class="chunking-cb accent-yellow-500 w-3 h-3 cursor-pointer" ${card.chunking ? 'checked' : ''} ${(!chunkingEnabled || isExported) ? 'disabled' : ''}>
+        </label>
+        <span class="w-px self-stretch bg-border-primary mx-4 shrink-0"></span>
+        <div class="card-content flex-1 min-w-0">
+          <div class="text-[13px] font-medium overflow-hidden text-ellipsis whitespace-nowrap ${isExported ? 'text-green-400' : 'text-gray-300'}">${escapeHtml(card.selectedText)}</div>
+          <div class="text-[11px] text-gray-600 overflow-hidden text-ellipsis whitespace-nowrap mt-0.5">${escapeHtml(card.expression)}</div>
+        </div>
+        <button class="opacity-0 group-hover:opacity-100 bg-transparent border-none text-gray-500 text-base cursor-pointer py-0.5 px-1.5 rounded transition-all duration-150 hover:text-accent w-6 shrink-0" title="Delete card">&times;</button>
       </div>
-      <button class="opacity-0 group-hover:opacity-100 bg-transparent border-none text-gray-500 text-base cursor-pointer py-0.5 px-1.5 rounded transition-all duration-150 hover:text-accent w-6 shrink-0" title="Delete card">&times;</button>
     `;
+
+    // Cloze hint row (shown when chunking is enabled) — sits below the sentence, aligned with content
+    if (card.chunking) {
+      const contentDiv = item.querySelector('.card-content') as HTMLDivElement;
+      const hintRow = document.createElement('div');
+      hintRow.className = 'flex items-center gap-1.5 mt-1';
+      hintRow.innerHTML = `
+        <span class="text-[10px] text-gray-600 shrink-0">Hint:</span>
+        <input type="text" class="cloze-hint-input flex-1 bg-bg-primary border border-border-primary rounded text-[11px] text-gray-300 py-0.5 px-1.5 outline-none transition-colors focus:border-accent" value="${escapeHtml(card.clozeHint || '')}" placeholder="loading...">
+      `;
+      contentDiv.appendChild(hintRow);
+
+      const hintInput = hintRow.querySelector('.cloze-hint-input') as HTMLInputElement;
+
+      // If no hint yet, fetch one
+      if (!card.clozeHint) {
+        hintInput.disabled = true;
+        window.api.getClozeHint({
+          selectedText: card.selectedText,
+          fullSentence: card.expression,
+          translation: card.translation || '',
+        }).then(async (res) => {
+          const hint = res.success && res.hint ? res.hint : card.translation || '';
+          hintInput.value = hint;
+          hintInput.disabled = false;
+          // Save the auto-generated hint
+          const allCards = await loadCards(folder);
+          const target = allCards.find(c => c.id === card.id);
+          if (target) {
+            target.clozeHint = hint;
+            await saveCards(folder, allCards);
+          }
+        });
+      }
+
+      // Save on edit
+      let hintDebounce: ReturnType<typeof setTimeout>;
+      hintInput.addEventListener('input', () => {
+        clearTimeout(hintDebounce);
+        hintDebounce = setTimeout(async () => {
+          const allCards = await loadCards(folder);
+          const target = allCards.find(c => c.id === card.id);
+          if (target) {
+            target.clozeHint = hintInput.value;
+            await saveCards(folder, allCards);
+          }
+        }, 400);
+      });
+
+      // Prevent card modal from opening when clicking input
+      hintInput.addEventListener('click', (e: Event) => e.stopPropagation());
+    }
 
     // Chunking checkbox toggle
     const cb = item.querySelector('.chunking-cb') as HTMLInputElement;
@@ -248,6 +302,9 @@ async function renderCardsView(folder: string, title: string): Promise<void> {
       const target = allCards.find(c => c.id === card.id);
       if (target) {
         target.chunking = cb.checked;
+        if (!cb.checked) {
+          target.clozeHint = undefined;
+        }
         await saveCards(folder, allCards);
         renderCardsView(folder, title);
       }
@@ -258,7 +315,7 @@ async function renderCardsView(folder: string, title: string): Promise<void> {
       e.stopPropagation();
     });
 
-    item.querySelector('div.flex-1')!.addEventListener('click', () => {
+    item.querySelector('.card-content')!.addEventListener('click', () => {
       openCardModal(card);
     });
 
@@ -322,6 +379,7 @@ function escapeHtml(text: string): string {
 async function selectVideo(video: { folder: string; videoPath: string; srtPath: string; title?: string }): Promise<void> {
   currentFolder = video.folder;
   currentVideoTitle = video.title || video.folder;
+  cachedTranscriptLemmas = null;
   sidebarView = 'cards';
   refreshSidebar();
   loadVideo(video.videoPath, video.srtPath);
@@ -588,6 +646,34 @@ ankiChunkingDeckSelect.addEventListener('change', () => {
 // Check Anki on startup and poll every 5 seconds
 checkAnkiConnection();
 setInterval(checkAnkiConnection, 5000);
+
+// --- API Cost Display ---
+const apiCostDisplay = document.getElementById('apiCostDisplay') as HTMLSpanElement;
+const apiCostResetBtn = document.getElementById('apiCostResetBtn') as HTMLButtonElement;
+
+function updateCostDisplay(totalCost: number): void {
+  apiCostDisplay.textContent = totalCost < 0.01
+    ? `$${totalCost.toFixed(4)}`
+    : `$${totalCost.toFixed(2)}`;
+}
+
+// Listen for real-time cost updates from main process
+window.api.onApiCostUpdate((data) => {
+  updateCostDisplay(data.totalCost);
+});
+
+// Load existing cost on startup
+(async () => {
+  try {
+    const { totalCost } = await window.api.getApiCost();
+    updateCostDisplay(totalCost);
+  } catch { /* ignore */ }
+})();
+
+apiCostResetBtn.addEventListener('click', async () => {
+  await window.api.resetApiCost();
+  updateCostDisplay(0);
+});
 
 // --- Video / transcript resize handle ---
 
@@ -901,7 +987,11 @@ const mweTabCategories = document.getElementById('mweTabCategories') as HTMLButt
 const mweTabList = document.getElementById('mweTabList') as HTMLButtonElement;
 
 let isMWEResizing = false;
-let mweView: 'categories' | 'list' = 'categories';
+let mweView: 'categories' | 'list' | 'lemmas' = 'categories';
+const mweTabLemmas = document.getElementById('mweTabLemmas') as HTMLButtonElement;
+let cachedTranscriptLemmas: TranscriptLemma[] | null = null;
+let lemmaFilter: 'all' | 'unknown' | 'known' = 'unknown';
+let isLemmaAnalyzing = false;
 let lastMWEResults: MWEResult[] = [];
 let selectedMWEs = new Set<string>();
 let lastClickedMWEIndex = -1;
@@ -1220,21 +1310,205 @@ function renderMWEActionBar(): void {
   mwePanel.appendChild(bar);
 }
 
+// ⌘D shortcut to toggle known/unknown on selected MWEs
+document.addEventListener('keydown', async (e: KeyboardEvent) => {
+  if (e.metaKey && e.key === 'd') {
+    e.preventDefault();
+    if (selectedMWEs.size === 0) return;
+
+    const selectedResults = lastMWEResults.filter(r => selectedMWEs.has(r.normalized_form));
+    const seenForms = new Set<string>();
+    const uniqueSelected: MWEResult[] = [];
+    for (const r of selectedResults) {
+      if (!seenForms.has(r.normalized_form)) {
+        seenForms.add(r.normalized_form);
+        uniqueSelected.push(r);
+      }
+    }
+    const allKnown = uniqueSelected.length > 0 && uniqueSelected.every(r => r.is_known);
+    const markKnown = !allKnown;
+    const forms = [...selectedMWEs];
+    await window.api.markMWEsKnown({ normalizedForms: forms, known: markKnown });
+    for (const r of lastMWEResults) {
+      if (selectedMWEs.has(r.normalized_form)) {
+        r.is_known = markKnown;
+      }
+    }
+    selectedMWEs.clear();
+    lastClickedMWEIndex = -1;
+    renderMWEFlatList(lastMWEResults);
+  }
+});
+
+const TAB_ACTIVE = 'flex-1 py-1.5 text-[11px] font-semibold text-accent border-b-2 border-accent bg-transparent cursor-pointer transition-colors';
+const TAB_INACTIVE = 'flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300';
+
+function setMWETabActive(active: 'categories' | 'list' | 'lemmas') {
+  mweTabCategories.className = active === 'categories' ? TAB_ACTIVE : TAB_INACTIVE;
+  mweTabList.className = active === 'list' ? TAB_ACTIVE : TAB_INACTIVE;
+  mweTabLemmas.className = active === 'lemmas' ? TAB_ACTIVE : TAB_INACTIVE;
+}
+
 mweTabCategories.addEventListener('click', () => {
   mweView = 'categories';
   selectedMWEs.clear();
   lastClickedMWEIndex = -1;
-  mweTabCategories.className = 'flex-1 py-1.5 text-[11px] font-semibold text-accent border-b-2 border-accent bg-transparent cursor-pointer transition-colors';
-  mweTabList.className = 'flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300';
+  setMWETabActive('categories');
   if (lastMWEResults.length > 0) renderMWEByCategory(lastMWEResults);
 });
 
 mweTabList.addEventListener('click', () => {
   mweView = 'list';
-  mweTabList.className = 'flex-1 py-1.5 text-[11px] font-semibold text-accent border-b-2 border-accent bg-transparent cursor-pointer transition-colors';
-  mweTabCategories.className = 'flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300';
+  setMWETabActive('list');
   if (lastMWEResults.length > 0) renderMWEFlatList(lastMWEResults);
 });
+
+mweTabLemmas.addEventListener('click', async () => {
+  mweView = 'lemmas';
+  setMWETabActive('lemmas');
+
+  if (cachedTranscriptLemmas) {
+    renderTranscriptLemmas(cachedTranscriptLemmas);
+    return;
+  }
+
+  if (!currentFolder) {
+    mweList.innerHTML = '<div class="py-6 px-3 text-gray-600 text-[12px] text-center">Select a video first.</div>';
+    return;
+  }
+
+  if (isLemmaAnalyzing) return;
+  isLemmaAnalyzing = true;
+  mweList.innerHTML = '<div class="py-6 px-3 text-gray-400 text-[12px] text-center flex items-center justify-center gap-2"><span class="spinner"></span> Analyzing transcript lemmas...</div>';
+
+  try {
+    const result = await window.api.analyzeTranscriptLemmas(currentFolder);
+    if (result.success && result.lemmas) {
+      cachedTranscriptLemmas = result.lemmas;
+      if (mweView === 'lemmas') {
+        renderTranscriptLemmas(result.lemmas);
+      }
+    } else {
+      mweList.innerHTML = `<div class="py-6 px-3 text-red-400 text-[12px] text-center">${result.error || 'Failed to analyze'}</div>`;
+    }
+  } catch (err) {
+    mweList.innerHTML = `<div class="py-6 px-3 text-red-400 text-[12px] text-center">Error: ${(err as Error).message}</div>`;
+  } finally {
+    isLemmaAnalyzing = false;
+  }
+});
+
+function renderTranscriptLemmas(allLemmas: TranscriptLemma[]): void {
+  const knownCount = allLemmas.filter(l => l.is_known).length;
+  const unknownCount = allLemmas.length - knownCount;
+
+  // Apply filter
+  const filtered = lemmaFilter === 'all' ? allLemmas
+    : lemmaFilter === 'known' ? allLemmas.filter(l => l.is_known)
+    : allLemmas.filter(l => !l.is_known);
+
+  const posColors: Record<string, string> = {
+    NOUN: 'text-blue-400',
+    VERB: 'text-green-400',
+    ADJ: 'text-yellow-400',
+    ADV: 'text-purple-400',
+  };
+
+  const posLabels: Record<string, string> = {
+    NOUN: 'n',
+    VERB: 'v',
+    ADJ: 'adj',
+    ADV: 'adv',
+  };
+
+  const filterBtnClass = (f: string) => f === lemmaFilter
+    ? 'px-2 py-0.5 rounded text-[10px] font-medium bg-white/10 text-white'
+    : 'px-2 py-0.5 rounded text-[10px] font-medium text-gray-500 hover:text-gray-300 hover:bg-white/5';
+
+  let html = '';
+
+  // Filter bar
+  html += `<div class="px-3 py-1.5 flex items-center gap-1 border-b border-border-primary bg-bg-primary/30">
+    <button class="${filterBtnClass('unknown')}" data-lemma-filter="unknown">Unknown <span class="text-gray-500">${unknownCount}</span></button>
+    <button class="${filterBtnClass('known')}" data-lemma-filter="known">Known <span class="text-gray-500">${knownCount}</span></button>
+    <button class="${filterBtnClass('all')}" data-lemma-filter="all">All <span class="text-gray-500">${allLemmas.length}</span></button>
+    <span class="ml-auto italic text-[10px] text-gray-600">sorted by importance ↓</span>
+  </div>`;
+
+  // Legend
+  html += `<div class="px-3 py-1 flex items-center justify-end gap-3 text-[10px] text-gray-600 border-b border-border-primary">
+    <span class="flex items-center gap-1"><span class="font-mono text-gray-500">3x</span> = in transcript</span>
+    <span class="flex items-center gap-1">
+      <span class="flex gap-px">
+        <span class="inline-block w-2 h-1.5 rounded-sm bg-green-500"></span>
+        <span class="inline-block w-2 h-1.5 rounded-sm bg-yellow-500"></span>
+        <span class="inline-block w-2 h-1.5 rounded-sm bg-red-500"></span>
+      </span>
+      = frequency
+    </span>
+  </div>`;
+
+  if (filtered.length === 0) {
+    const msg = lemmaFilter === 'known'
+      ? 'No known lemmas found in this transcript.'
+      : 'You know all the content words in this transcript!';
+    html += `<div class="py-6 px-3 text-gray-500 text-[12px] text-center">${msg}</div>`;
+    mweList.innerHTML = html;
+    attachLemmaFilterListeners();
+    return;
+  }
+
+  // Lemma list
+  html += '<div class="divide-y divide-border-primary">';
+  for (const lemma of filtered) {
+    const posColor = posColors[lemma.pos] || 'text-gray-400';
+    const posLabel = posLabels[lemma.pos] || lemma.pos.toLowerCase();
+    const freqPercent = Math.min(100, (lemma.general_freq / 7) * 100);
+    const knownDim = lemma.is_known ? ' opacity-50' : '';
+
+    html += `<div class="px-3 py-1.5 hover:bg-bg-primary/50 transition-colors cursor-pointer lemma-entry${knownDim}" data-sentence-index="${lemma.first_sentence_index}">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="text-[13px] ${lemma.is_known ? 'text-gray-500' : 'text-gray-200'} font-medium truncate">${lemma.lemma}</span>
+          <span class="${posColor} text-[10px] font-mono shrink-0">${posLabel}</span>
+          ${lemma.is_known ? '<span class="text-[9px] text-green-600 shrink-0">✓</span>' : ''}
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="text-[10px] text-gray-600" title="Times in transcript">${lemma.transcript_count}x</span>
+          <div class="w-12 h-1 bg-bg-primary rounded-full overflow-hidden" title="General Spanish frequency: ${lemma.general_freq}/7">
+            <div class="h-full rounded-full ${lemma.general_freq >= 5 ? 'bg-green-500' : lemma.general_freq >= 3 ? 'bg-yellow-500' : 'bg-red-500'}" style="width: ${freqPercent}%"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+  html += '</div>';
+
+  mweList.innerHTML = html;
+  attachLemmaFilterListeners();
+
+  // Add click handlers to navigate to first occurrence in transcript
+  mweList.querySelectorAll('.lemma-entry').forEach((el) => {
+    el.addEventListener('click', () => {
+      const sentenceIndex = parseInt((el as HTMLElement).dataset.sentenceIndex || '-1', 10);
+      if (sentenceIndex >= 0 && sentenceIndex < subtitles.length) {
+        videoPlayer.currentTime = subtitles[sentenceIndex].start;
+        const entry = transcriptList.children[sentenceIndex] as HTMLElement;
+        if (entry) entry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  });
+}
+
+function attachLemmaFilterListeners(): void {
+  mweList.querySelectorAll('[data-lemma-filter]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      lemmaFilter = (btn as HTMLElement).dataset.lemmaFilter as 'all' | 'unknown' | 'known';
+      if (cachedTranscriptLemmas) renderTranscriptLemmas(cachedTranscriptLemmas);
+    });
+  });
+}
 
 // Load existing MWEs when a video is selected
 async function loadMWEsForFolder(folder: string): Promise<void> {
@@ -1391,6 +1665,422 @@ cardModalClose.addEventListener('click', closeCardModal);
 cardModal.addEventListener('click', (e: Event) => {
   if (e.target === cardModal) closeCardModal();
 });
+
+// --- Corpus Page ---
+
+const corpusNavBtn = document.getElementById('corpusNavBtn') as HTMLButtonElement;
+const mainPage = document.getElementById('mainPage') as HTMLDivElement;
+const corpusPage = document.getElementById('corpusPage') as HTMLDivElement;
+const corpusDeckList = document.getElementById('corpusDeckList') as HTMLDivElement;
+const corpusFetchBtn = document.getElementById('corpusFetchBtn') as HTMLButtonElement;
+const corpusDeckInfo = document.getElementById('corpusDeckInfo') as HTMLDivElement;
+const corpusPreview = document.getElementById('corpusPreview') as HTMLDivElement;
+const corpusSentenceCount = document.getElementById('corpusSentenceCount') as HTMLSpanElement;
+const corpusSentenceList = document.getElementById('corpusSentenceList') as HTMLDivElement;
+const corpusBuildBtn = document.getElementById('corpusBuildBtn') as HTMLButtonElement;
+const corpusCancelBtn = document.getElementById('corpusCancelBtn') as HTMLButtonElement;
+const corpusBuildProgress = document.getElementById('corpusBuildProgress') as HTMLDivElement;
+const corpusBuildProgressText = document.getElementById('corpusBuildProgressText') as HTMLSpanElement;
+
+// MWE Review elements
+const corpusMWEReview = document.getElementById('corpusMWEReview') as HTMLDivElement;
+const corpusMWEReviewCount = document.getElementById('corpusMWEReviewCount') as HTMLSpanElement;
+const corpusMWEReviewList = document.getElementById('corpusMWEReviewList') as HTMLDivElement;
+const corpusMWESelectAll = document.getElementById('corpusMWESelectAll') as HTMLButtonElement;
+const corpusMWEDeselectAll = document.getElementById('corpusMWEDeselectAll') as HTMLButtonElement;
+const corpusMWEApproveBtn = document.getElementById('corpusMWEApproveBtn') as HTMLButtonElement;
+const corpusMWESelectedCount = document.getElementById('corpusMWESelectedCount') as HTMLSpanElement;
+
+// Stats elements
+const statTotalLemmas = document.getElementById('statTotalLemmas') as HTMLDivElement;
+const statTotalMWEs = document.getElementById('statTotalMWEs') as HTMLDivElement;
+const statKnownMWEs = document.getElementById('statKnownMWEs') as HTMLDivElement;
+const statUnknownMWEs = document.getElementById('statUnknownMWEs') as HTMLDivElement;
+const statLemmasByPos = document.getElementById('statLemmasByPos') as HTMLDivElement;
+const statMWEsByCategory = document.getElementById('statMWEsByCategory') as HTMLDivElement;
+const statImports = document.getElementById('statImports') as HTMLDivElement;
+
+let currentPage: 'main' | 'corpus' = 'main';
+let selectedCorpusDecks = new Set<string>();
+let corpusSentences: string[] = [];
+let corpusLemmas: { lemma: string; pos: string }[] = [];
+let pendingMWEs: MWEResult[] = [];
+let mweCheckedSet = new Set<number>(); // indices into pendingMWEs that are checked
+let corpusDeckName = '';
+let corpusLemmaCount = 0;
+let corpusNewSentenceCount = 0;
+let corpusSkippedCount = 0;
+
+function switchPage(page: 'main' | 'corpus'): void {
+  currentPage = page;
+  if (page === 'main') {
+    mainPage.classList.remove('hidden');
+    progressEl.classList.remove('hidden');
+    corpusPage.classList.add('hidden');
+    corpusNavBtn.textContent = 'Corpus';
+    corpusNavBtn.classList.remove('bg-accent', 'text-white', 'border-accent');
+    corpusNavBtn.classList.add('bg-bg-primary', 'text-gray-400', 'border-border-primary');
+  } else {
+    mainPage.classList.add('hidden');
+    progressEl.classList.add('hidden');
+    corpusPage.classList.remove('hidden');
+    corpusPage.classList.add('flex');
+    corpusNavBtn.textContent = '← Back';
+    corpusNavBtn.classList.add('bg-accent', 'text-white', 'border-accent');
+    corpusNavBtn.classList.remove('bg-bg-primary', 'text-gray-400', 'border-border-primary');
+    loadCorpusDecks();
+    refreshCorpusStats();
+  }
+}
+
+corpusNavBtn.addEventListener('click', () => {
+  switchPage(currentPage === 'main' ? 'corpus' : 'main');
+});
+
+async function loadCorpusDecks(): Promise<void> {
+  if (!ankiConnected) {
+    corpusDeckList.innerHTML = '<div class="py-6 text-red-400 text-[13px] text-center">Anki not connected</div>';
+    return;
+  }
+
+  corpusDeckList.innerHTML = '<div class="py-6 text-gray-600 text-[13px] text-center">Loading decks...</div>';
+
+  try {
+    const res = await window.api.ankiInvoke('deckNames');
+    const decks = (res.result as string[]).sort();
+
+    corpusDeckList.innerHTML = '';
+    for (const deck of decks) {
+      const div = document.createElement('div');
+      div.className = 'flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-primary cursor-pointer transition-colors';
+      div.innerHTML = `
+        <input type="checkbox" class="corpus-deck-cb accent-accent cursor-pointer" data-deck="${escapeHtml(deck)}" ${selectedCorpusDecks.has(deck) ? 'checked' : ''}>
+        <span class="text-[13px] text-gray-300 truncate">${escapeHtml(deck)}</span>
+      `;
+      const cb = div.querySelector('input') as HTMLInputElement;
+      cb.addEventListener('change', () => {
+        if (cb.checked) {
+          selectedCorpusDecks.add(deck);
+        } else {
+          selectedCorpusDecks.delete(deck);
+        }
+        updateCorpusDeckInfo();
+      });
+      div.addEventListener('click', (e) => {
+        if (e.target !== cb) {
+          cb.checked = !cb.checked;
+          cb.dispatchEvent(new Event('change'));
+        }
+      });
+      corpusDeckList.appendChild(div);
+    }
+    updateCorpusDeckInfo();
+  } catch {
+    corpusDeckList.innerHTML = '<div class="py-6 text-red-400 text-[13px] text-center">Failed to load decks</div>';
+  }
+}
+
+function updateCorpusDeckInfo(): void {
+  const count = selectedCorpusDecks.size;
+  corpusDeckInfo.textContent = count === 0 ? 'No decks selected' : `${count} deck${count > 1 ? 's' : ''} selected`;
+  corpusFetchBtn.disabled = count === 0;
+}
+
+corpusFetchBtn.addEventListener('click', async () => {
+  if (selectedCorpusDecks.size === 0) return;
+
+  corpusFetchBtn.disabled = true;
+  corpusFetchBtn.textContent = 'Fetching...';
+  corpusPreview.classList.add('hidden');
+
+  try {
+    const res = await window.api.fetchAnkiNotes([...selectedCorpusDecks]);
+    if (!res.success) {
+      corpusFetchBtn.textContent = 'Fetch Sentences';
+      corpusFetchBtn.disabled = false;
+      alert('Failed to fetch: ' + res.error);
+      return;
+    }
+
+    corpusSentences = res.sentences || [];
+    if (corpusSentences.length === 0) {
+      corpusFetchBtn.textContent = 'Fetch Sentences';
+      corpusFetchBtn.disabled = false;
+      alert('No sentences found in selected decks.');
+      return;
+    }
+
+    corpusSentenceCount.textContent = `${corpusSentences.length} unique sentences (Front field only)`;
+
+    // Show preview (first 50)
+    corpusSentenceList.innerHTML = '';
+    const preview = corpusSentences.slice(0, 50);
+    for (const s of preview) {
+      const div = document.createElement('div');
+      div.className = 'text-[12px] text-gray-400 py-0.5 px-2 border-l-2 border-border-primary';
+      div.textContent = s;
+      corpusSentenceList.appendChild(div);
+    }
+    if (corpusSentences.length > 50) {
+      const more = document.createElement('div');
+      more.className = 'text-[11px] text-gray-600 py-1 px-2 italic';
+      more.textContent = `...and ${corpusSentences.length - 50} more`;
+      corpusSentenceList.appendChild(more);
+    }
+
+    corpusPreview.classList.remove('hidden');
+
+    // Extract lemmas in background
+    corpusBuildBtn.disabled = true;
+    corpusBuildBtn.textContent = 'Extracting lemmas (SpaCy)...';
+    const lemmaRes = await window.api.extractLemmas(corpusSentences);
+    if (lemmaRes.success && lemmaRes.lemmas) {
+      corpusLemmas = lemmaRes.lemmas;
+      corpusBuildBtn.textContent = `Build Corpus (${corpusLemmas.length} lemmas + MWEs)`;
+    } else {
+      corpusBuildBtn.textContent = 'Build Corpus (lemma extraction failed, MWEs only)';
+      corpusLemmas = [];
+    }
+    corpusBuildBtn.disabled = false;
+
+  } finally {
+    corpusFetchBtn.textContent = 'Fetch Sentences';
+    corpusFetchBtn.disabled = selectedCorpusDecks.size === 0;
+  }
+});
+
+// Build corpus (extract + normalize, then show for review)
+corpusBuildBtn.addEventListener('click', async () => {
+  if (corpusSentences.length === 0) return;
+
+  corpusDeckName = [...selectedCorpusDecks].join('+');
+  corpusBuildBtn.disabled = true;
+  corpusCancelBtn.classList.remove('hidden');
+  corpusBuildProgress.classList.remove('hidden');
+  corpusBuildProgressText.textContent = 'Starting...';
+  corpusMWEReview.classList.add('hidden');
+
+  try {
+    const res = await window.api.buildAnkiCorpus({
+      deckName: corpusDeckName,
+      sentences: corpusSentences,
+      lemmas: corpusLemmas,
+    });
+
+    if (res.success && res.mwes) {
+      corpusLemmaCount = res.lemmaCount || 0;
+      corpusSkippedCount = res.skippedCount || 0;
+      corpusNewSentenceCount = res.sentenceCount || 0;
+
+      if (corpusNewSentenceCount === 0 && corpusSkippedCount > 0) {
+        corpusBuildProgressText.textContent = `All ${corpusSkippedCount} sentences have already been analyzed. Add new cards and try again.`;
+      } else {
+        const skippedMsg = corpusSkippedCount > 0 ? ` (skipped ${corpusSkippedCount} already-processed)` : '';
+        corpusBuildProgressText.textContent = `Extracted ${res.mwes.length} MWEs from ${corpusNewSentenceCount} new sentences${skippedMsg}. Review below.`;
+      }
+      if (res.mwes.length > 0) showMWEReview(res.mwes);
+    } else if (res.error === 'cancelled') {
+      corpusBuildProgressText.textContent = 'Cancelled';
+    } else {
+      corpusBuildProgressText.textContent = `Error: ${res.error}`;
+    }
+  } catch (err) {
+    corpusBuildProgressText.textContent = `Error: ${(err as Error).message}`;
+  } finally {
+    corpusBuildBtn.disabled = false;
+    corpusCancelBtn.classList.add('hidden');
+  }
+});
+
+corpusCancelBtn.addEventListener('click', () => {
+  window.api.cancelCorpusBuild();
+});
+
+window.api.onCorpusProgress((progress: CorpusProgress) => {
+  corpusBuildProgressText.textContent = progress.message;
+});
+
+// --- MWE Review ---
+
+function showMWEReview(mwes: MWEResult[]): void {
+  pendingMWEs = mwes;
+  // Deduplicate by normalized_form for the review list
+  const uniqueMap = new Map<string, { mwe: MWEResult; indices: number[]; surfaces: Set<string> }>();
+  mwes.forEach((mwe, i) => {
+    const key = mwe.normalized_form;
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, { mwe, indices: [i], surfaces: new Set([mwe.surface_form]) });
+    } else {
+      const entry = uniqueMap.get(key)!;
+      entry.indices.push(i);
+      entry.surfaces.add(mwe.surface_form);
+    }
+  });
+
+  const uniqueEntries = [...uniqueMap.values()].sort((a, b) => b.indices.length - a.indices.length);
+
+  // Default: all selected
+  mweCheckedSet = new Set(mwes.map((_, i) => i));
+
+  corpusMWEReviewCount.textContent = `${uniqueEntries.length} unique MWEs (${mwes.length} instances)`;
+  corpusMWEReviewList.innerHTML = '';
+
+  for (const entry of uniqueEntries) {
+    const row = document.createElement('div');
+    row.className = 'flex items-start gap-2 py-2 px-4 border-b border-border-primary/50 hover:bg-bg-primary/50 transition-colors';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.className = 'accent-accent cursor-pointer mt-1 shrink-0';
+    cb.addEventListener('change', () => {
+      for (const idx of entry.indices) {
+        if (cb.checked) {
+          mweCheckedSet.add(idx);
+        } else {
+          mweCheckedSet.delete(idx);
+        }
+      }
+      updateMWESelectedCount();
+    });
+
+    const info = document.createElement('div');
+    info.className = 'flex-1 min-w-0';
+
+    const cats = entry.mwe.categories.map(c =>
+      `<span class="inline-block text-[9px] px-1.5 py-0.5 rounded bg-accent/20 text-accent mr-1">${escapeHtml(c)}</span>`
+    ).join('');
+
+    const surfaces = [...entry.surfaces].map(s => escapeHtml(s)).join(', ');
+
+    info.innerHTML = `
+      <div class="flex items-center gap-2">
+        <span class="text-[13px] text-white font-medium">${escapeHtml(entry.mwe.normalized_form)}</span>
+        <span class="text-[10px] text-gray-600">×${entry.indices.length}</span>
+        ${cats}
+      </div>
+      ${surfaces !== entry.mwe.normalized_form ? `<div class="text-[11px] text-gray-500 mt-0.5">Surface: ${surfaces}</div>` : ''}
+      ${entry.mwe.context_note ? `<div class="text-[10px] text-gray-600 mt-0.5 italic">${escapeHtml(entry.mwe.context_note)}</div>` : ''}
+      <div class="text-[10px] text-gray-600 mt-0.5 truncate">e.g. "${escapeHtml(entry.mwe.sentence_text)}"</div>
+    `;
+
+    row.appendChild(cb);
+    row.appendChild(info);
+    corpusMWEReviewList.appendChild(row);
+  }
+
+  corpusMWEReview.classList.remove('hidden');
+  updateMWESelectedCount();
+}
+
+function updateMWESelectedCount(): void {
+  corpusMWESelectedCount.textContent = `${mweCheckedSet.size} of ${pendingMWEs.length} instances selected`;
+  corpusMWEApproveBtn.disabled = mweCheckedSet.size === 0;
+}
+
+corpusMWESelectAll.addEventListener('click', () => {
+  mweCheckedSet = new Set(pendingMWEs.map((_, i) => i));
+  corpusMWEReviewList.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+  updateMWESelectedCount();
+});
+
+corpusMWEDeselectAll.addEventListener('click', () => {
+  mweCheckedSet.clear();
+  corpusMWEReviewList.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+  updateMWESelectedCount();
+});
+
+corpusMWEApproveBtn.addEventListener('click', async () => {
+  const approved = pendingMWEs.filter((_, i) => mweCheckedSet.has(i));
+  if (approved.length === 0) return;
+
+  corpusMWEApproveBtn.disabled = true;
+  corpusMWEApproveBtn.textContent = 'Storing...';
+
+  try {
+    const res = await window.api.approveCorpusMWEs({
+      deckName: corpusDeckName,
+      mwes: approved,
+      sentenceCount: corpusNewSentenceCount || corpusSentences.length,
+      lemmaCount: corpusLemmaCount,
+      processedSentences: corpusSentences,
+    });
+
+    if (res.success) {
+      corpusMWEReview.classList.add('hidden');
+      const sentenceLabel = corpusNewSentenceCount || corpusSentences.length;
+      corpusBuildProgressText.textContent = `Done! Stored ${res.stored} MWEs + ${corpusLemmaCount} lemmas from ${sentenceLabel} sentences`;
+      pendingMWEs = [];
+      mweCheckedSet.clear();
+      refreshCorpusStats();
+    }
+  } catch (err) {
+    alert('Failed to store MWEs: ' + (err as Error).message);
+  } finally {
+    corpusMWEApproveBtn.disabled = false;
+    corpusMWEApproveBtn.textContent = 'Approve Selected';
+  }
+});
+
+// Stats rendering
+function renderBarChart(container: HTMLDivElement, items: { label: string; count: number }[]): void {
+  container.innerHTML = '';
+  if (items.length === 0) {
+    container.innerHTML = '<div class="text-[12px] text-gray-600 italic">No data yet</div>';
+    return;
+  }
+  const max = Math.max(...items.map(i => i.count));
+  for (const item of items) {
+    const pct = max > 0 ? (item.count / max) * 100 : 0;
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2';
+    row.innerHTML = `
+      <span class="text-[11px] text-gray-400 w-16 text-right shrink-0">${escapeHtml(item.label)}</span>
+      <div class="flex-1 h-4 bg-bg-primary rounded overflow-hidden">
+        <div class="h-full bg-accent/40 rounded transition-all" style="width: ${pct}%"></div>
+      </div>
+      <span class="text-[11px] text-gray-500 w-10 shrink-0">${item.count}</span>
+    `;
+    container.appendChild(row);
+  }
+}
+
+async function refreshCorpusStats(): Promise<void> {
+  try {
+    const stats = await window.api.getCorpusStats();
+
+    statTotalLemmas.textContent = stats.totalLemmas.toLocaleString();
+    statTotalMWEs.textContent = stats.totalMWEs.toLocaleString();
+    statKnownMWEs.textContent = stats.knownMWEs.toLocaleString();
+    statUnknownMWEs.textContent = stats.unknownMWEs.toLocaleString();
+
+    renderBarChart(statLemmasByPos, stats.lemmasByPos.map(p => ({ label: p.pos, count: p.count })));
+    renderBarChart(statMWEsByCategory, stats.mwesByCategory.map(c => ({ label: c.category, count: c.count })));
+
+    // Import history
+    statImports.innerHTML = '';
+    if (stats.imports.length === 0) {
+      statImports.innerHTML = '<div class="text-[12px] text-gray-600 italic">No imports yet</div>';
+    } else {
+      for (const imp of stats.imports) {
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between py-1.5 px-2 bg-bg-primary rounded text-[12px]';
+        row.innerHTML = `
+          <span class="text-gray-300 font-medium truncate mr-2">${escapeHtml(imp.deck_name)}</span>
+          <div class="flex gap-3 shrink-0 text-gray-500">
+            <span>${imp.sentence_count} sent</span>
+            <span>${imp.lemma_count} lemmas</span>
+            <span>${imp.mwe_count} MWEs</span>
+            <span class="text-gray-600">${new Date(imp.imported_at).toLocaleDateString()}</span>
+          </div>
+        `;
+        statImports.appendChild(row);
+      }
+    }
+  } catch {
+    // Stats not available yet
+  }
+}
 
 // Make startDownload available to onclick in HTML
 window.startDownload = startDownload;

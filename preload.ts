@@ -32,6 +32,23 @@ export interface MWEProgress {
   totalSentences?: number;
 }
 
+export interface CorpusProgress {
+  stage: string;
+  current?: number;
+  total?: number;
+  message: string;
+}
+
+export interface CorpusStats {
+  totalLemmas: number;
+  totalMWEs: number;
+  knownMWEs: number;
+  unknownMWEs: number;
+  lemmasByPos: { pos: string; count: number }[];
+  mwesByCategory: { category: string; count: number }[];
+  imports: { deck_name: string; sentence_count: number; lemma_count: number; mwe_count: number; imported_at: string }[];
+}
+
 export interface ElectronAPI {
   downloadVideo: (url: string) => Promise<{ success: boolean; videoPath?: string; srtPath?: string; folder?: string; error?: string }>;
   onDownloadProgress: (callback: (message: string) => void) => void;
@@ -47,7 +64,7 @@ export interface ElectronAPI {
   saveCards: (folder: string, cards: Card[]) => Promise<{ success: boolean }>;
   exportCardsToAnki: (params: {
     videoDir: string;
-    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number; chunking?: boolean }[];
+    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number; chunking?: boolean; clozeHint?: string }[];
     deckName: string;
     chunkingDeckName: string;
     videoTitle: string;
@@ -59,6 +76,19 @@ export interface ElectronAPI {
   getMWEsForFolder: (folder: string) => Promise<MWEResult[]>;
   getAllMWETypes: () => Promise<MWEType[]>;
   markMWEsKnown: (params: { normalizedForms: string[]; known: boolean }) => Promise<{ success: boolean }>;
+  getClozeHint: (params: { selectedText: string; fullSentence: string; translation: string }) => Promise<{ success: boolean; hint?: string; error?: string }>;
+  getApiCost: () => Promise<{ totalCost: number; entries: { model: string; promptTokens: number; completionTokens: number; costUsd: number; source: string; timestamp: number }[] }>;
+  resetApiCost: () => Promise<{ success: boolean }>;
+  onApiCostUpdate: (callback: (data: { totalCost: number }) => void) => void;
+  fetchAnkiNotes: (deckNames: string[]) => Promise<{ success: boolean; sentences?: string[]; totalNotes?: number; error?: string }>;
+  extractLemmas: (sentences: string[]) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string }[]; error?: string }>;
+  buildAnkiCorpus: (params: { deckName: string; sentences: string[]; lemmas: { lemma: string; pos: string }[] }) => Promise<{ success: boolean; lemmaCount?: number; mwes?: MWEResult[]; sentenceCount?: number; skippedCount?: number; error?: string }>;
+  approveCorpusMWEs: (params: { deckName: string; mwes: MWEResult[]; sentenceCount: number; lemmaCount: number; processedSentences?: string[] }) => Promise<{ success: boolean; stored?: number }>;
+  cancelCorpusBuild: () => Promise<void>;
+  onCorpusProgress: (callback: (progress: CorpusProgress) => void) => void;
+  getCorpusStats: () => Promise<CorpusStats>;
+  isCorpusImported: (deckName: string) => Promise<boolean>;
+  analyzeTranscriptLemmas: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; error?: string }>;
 }
 
 contextBridge.exposeInMainWorld('api', {
@@ -78,7 +108,7 @@ contextBridge.exposeInMainWorld('api', {
   saveCards: (folder: string, cards: Card[]) => ipcRenderer.invoke('save-cards', folder, cards),
   exportCardsToAnki: (params: {
     videoDir: string;
-    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number; chunking?: boolean }[];
+    cards: { id: string; expression: string; meaning: string; translation: string; selectedText: string; targetLineBefore: string; targetLineAfter: string; startTime: number; endTime: number; chunking?: boolean; clozeHint?: string }[];
     deckName: string;
     chunkingDeckName: string;
     videoTitle: string;
@@ -92,4 +122,21 @@ contextBridge.exposeInMainWorld('api', {
   getMWEsForFolder: (folder: string) => ipcRenderer.invoke('get-mwes-for-folder', folder),
   getAllMWETypes: () => ipcRenderer.invoke('get-all-mwe-types'),
   markMWEsKnown: (params: { normalizedForms: string[]; known: boolean }) => ipcRenderer.invoke('mark-mwes-known', params),
+  getClozeHint: (params: { selectedText: string; fullSentence: string; translation: string }) => ipcRenderer.invoke('get-cloze-hint', params),
+  getApiCost: () => ipcRenderer.invoke('get-api-cost'),
+  resetApiCost: () => ipcRenderer.invoke('reset-api-cost'),
+  onApiCostUpdate: (callback: (data: { totalCost: number }) => void) => {
+    ipcRenderer.on('api-cost-update', (_event, data: { totalCost: number }) => callback(data));
+  },
+  fetchAnkiNotes: (deckNames: string[]) => ipcRenderer.invoke('fetch-anki-notes', deckNames),
+  extractLemmas: (sentences: string[]) => ipcRenderer.invoke('extract-lemmas', sentences),
+  buildAnkiCorpus: (params: { deckName: string; sentences: string[]; lemmas: { lemma: string; pos: string }[] }) => ipcRenderer.invoke('build-anki-corpus', params),
+  approveCorpusMWEs: (params: { deckName: string; mwes: MWEResult[]; sentenceCount: number; lemmaCount: number }) => ipcRenderer.invoke('approve-corpus-mwes', params),
+  cancelCorpusBuild: () => ipcRenderer.invoke('cancel-corpus-build'),
+  onCorpusProgress: (callback: (progress: CorpusProgress) => void) => {
+    ipcRenderer.on('corpus-progress', (_event, progress: CorpusProgress) => callback(progress));
+  },
+  getCorpusStats: () => ipcRenderer.invoke('get-corpus-stats'),
+  isCorpusImported: (deckName: string) => ipcRenderer.invoke('is-corpus-imported', deckName),
+  analyzeTranscriptLemmas: (folder: string) => ipcRenderer.invoke('analyze-transcript-lemmas', folder),
 } satisfies ElectronAPI);
