@@ -88,7 +88,8 @@ export interface ElectronAPI {
   onCorpusProgress: (callback: (progress: CorpusProgress) => void) => void;
   getCorpusStats: () => Promise<CorpusStats>;
   isCorpusImported: (deckName: string) => Promise<boolean>;
-  analyzeTranscriptLemmas: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; error?: string }>;
+  analyzeTranscriptLemmas: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; analyzedAt?: string; error?: string }>;
+  loadTranscriptLemmas: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; analyzedAt?: string; error?: string }>;
 }
 
 contextBridge.exposeInMainWorld('api', {
@@ -139,4 +140,5 @@ contextBridge.exposeInMainWorld('api', {
   getCorpusStats: () => ipcRenderer.invoke('get-corpus-stats'),
   isCorpusImported: (deckName: string) => ipcRenderer.invoke('is-corpus-imported', deckName),
   analyzeTranscriptLemmas: (folder: string) => ipcRenderer.invoke('analyze-transcript-lemmas', folder),
+  loadTranscriptLemmas: (folder: string) => ipcRenderer.invoke('load-transcript-lemmas', folder),
 } satisfies ElectronAPI);

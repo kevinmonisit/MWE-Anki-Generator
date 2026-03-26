@@ -376,14 +376,25 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
+let cachedLemmaAnalyzedAt: string | null = null;
+
 async function selectVideo(video: { folder: string; videoPath: string; srtPath: string; title?: string }): Promise<void> {
   currentFolder = video.folder;
   currentVideoTitle = video.title || video.folder;
   cachedTranscriptLemmas = null;
+  cachedLemmaAnalyzedAt = null;
   sidebarView = 'cards';
   refreshSidebar();
   loadVideo(video.videoPath, video.srtPath);
   loadMWEsForFolder(video.folder);
+
+  // Load previously saved lemma analysis for this video
+  const saved = await window.api.loadTranscriptLemmas(video.folder);
+  if (saved.success && saved.lemmas) {
+    cachedTranscriptLemmas = saved.lemmas;
+    cachedLemmaAnalyzedAt = saved.analyzedAt || null;
+    if (mweView === 'lemmas') renderTranscriptLemmas(saved.lemmas);
+  }
 }
 
 let isDownloading = false;
@@ -1363,6 +1374,30 @@ mweTabList.addEventListener('click', () => {
   if (lastMWEResults.length > 0) renderMWEFlatList(lastMWEResults);
 });
 
+async function runLemmaAnalysis(): Promise<void> {
+  if (!currentFolder) return;
+  if (isLemmaAnalyzing) return;
+  isLemmaAnalyzing = true;
+  mweList.innerHTML = '<div class="py-6 px-3 text-gray-400 text-[12px] text-center flex items-center justify-center gap-2"><span class="spinner"></span> Analyzing transcript lemmas...</div>';
+
+  try {
+    const result = await window.api.analyzeTranscriptLemmas(currentFolder);
+    if (result.success && result.lemmas) {
+      cachedTranscriptLemmas = result.lemmas;
+      cachedLemmaAnalyzedAt = result.analyzedAt || new Date().toISOString();
+      if (mweView === 'lemmas') {
+        renderTranscriptLemmas(result.lemmas);
+      }
+    } else {
+      mweList.innerHTML = `<div class="py-6 px-3 text-red-400 text-[12px] text-center">${result.error || 'Failed to analyze'}</div>`;
+    }
+  } catch (err) {
+    mweList.innerHTML = `<div class="py-6 px-3 text-red-400 text-[12px] text-center">Error: ${(err as Error).message}</div>`;
+  } finally {
+    isLemmaAnalyzing = false;
+  }
+}
+
 mweTabLemmas.addEventListener('click', async () => {
   mweView = 'lemmas';
   setMWETabActive('lemmas');
@@ -1377,25 +1412,7 @@ mweTabLemmas.addEventListener('click', async () => {
     return;
   }
 
-  if (isLemmaAnalyzing) return;
-  isLemmaAnalyzing = true;
-  mweList.innerHTML = '<div class="py-6 px-3 text-gray-400 text-[12px] text-center flex items-center justify-center gap-2"><span class="spinner"></span> Analyzing transcript lemmas...</div>';
-
-  try {
-    const result = await window.api.analyzeTranscriptLemmas(currentFolder);
-    if (result.success && result.lemmas) {
-      cachedTranscriptLemmas = result.lemmas;
-      if (mweView === 'lemmas') {
-        renderTranscriptLemmas(result.lemmas);
-      }
-    } else {
-      mweList.innerHTML = `<div class="py-6 px-3 text-red-400 text-[12px] text-center">${result.error || 'Failed to analyze'}</div>`;
-    }
-  } catch (err) {
-    mweList.innerHTML = `<div class="py-6 px-3 text-red-400 text-[12px] text-center">Error: ${(err as Error).message}</div>`;
-  } finally {
-    isLemmaAnalyzing = false;
-  }
+  await runLemmaAnalysis();
 });
 
 function renderTranscriptLemmas(allLemmas: TranscriptLemma[]): void {
@@ -1432,7 +1449,10 @@ function renderTranscriptLemmas(allLemmas: TranscriptLemma[]): void {
     <button class="${filterBtnClass('unknown')}" data-lemma-filter="unknown">Unknown <span class="text-gray-500">${unknownCount}</span></button>
     <button class="${filterBtnClass('known')}" data-lemma-filter="known">Known <span class="text-gray-500">${knownCount}</span></button>
     <button class="${filterBtnClass('all')}" data-lemma-filter="all">All <span class="text-gray-500">${allLemmas.length}</span></button>
-    <span class="ml-auto italic text-[10px] text-gray-600">sorted by importance ↓</span>
+    <span class="ml-auto flex items-center gap-2">
+      ${cachedLemmaAnalyzedAt ? `<span class="italic text-[10px] text-gray-600" title="Analyzed on ${new Date(cachedLemmaAnalyzedAt).toLocaleString()}">${new Date(cachedLemmaAnalyzedAt).toLocaleDateString()}</span>` : ''}
+      <button id="lemmaReanalyzeBtn" class="text-[10px] text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-white/5 transition-colors">re-analyze</button>
+    </span>
   </div>`;
 
   // Legend
@@ -1508,6 +1528,16 @@ function attachLemmaFilterListeners(): void {
       if (cachedTranscriptLemmas) renderTranscriptLemmas(cachedTranscriptLemmas);
     });
   });
+
+  const reanalyzeBtn = document.getElementById('lemmaReanalyzeBtn');
+  if (reanalyzeBtn) {
+    reanalyzeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cachedTranscriptLemmas = null;
+      cachedLemmaAnalyzedAt = null;
+      runLemmaAnalysis();
+    });
+  }
 }
 
 // Load existing MWEs when a video is selected

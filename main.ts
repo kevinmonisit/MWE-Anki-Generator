@@ -625,6 +625,15 @@ ipcMain.handle('analyze-transcript-lemmas', async (_event, folder: string) => {
   });
 });
 
+// IPC: Load saved transcript lemmas for a folder (without re-analyzing)
+ipcMain.handle('load-transcript-lemmas', async (_event, folder: string) => {
+  const saved = loadLemmasFromDisk(folder);
+  if (!saved) return { success: false };
+  const { lemmas, analyzedAt } = saved;
+  const knownCount = lemmas.filter((l: TranscriptLemmaData) => l.is_known).length;
+  return { success: true, lemmas, analyzedAt, totalInTranscript: lemmas.length, knownCount, unknownCount: lemmas.length - knownCount };
+});
+
 // --- subs2srs export to Anki ---
 
 const PAD_START = 0.25;

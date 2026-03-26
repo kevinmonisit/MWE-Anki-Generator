@@ -76,6 +76,7 @@ interface TranscriptLemmaResult {
   totalInTranscript?: number;
   knownCount?: number;
   unknownCount?: number;
+  analyzedAt?: string;
   error?: string;
 }
 
@@ -132,6 +133,7 @@ interface ElectronAPI {
   getCorpusStats: () => Promise<CorpusStats>;
   isCorpusImported: (deckName: string) => Promise<boolean>;
   analyzeTranscriptLemmas: (folder: string) => Promise<TranscriptLemmaResult>;
+  loadTranscriptLemmas: (folder: string) => Promise<TranscriptLemmaResult>;
 }
 
 interface Window {
