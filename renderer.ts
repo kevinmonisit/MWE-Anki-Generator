@@ -1420,9 +1420,20 @@ function renderTranscriptLemmas(allLemmas: TranscriptLemma[]): void {
   const unknownCount = allLemmas.length - knownCount;
 
   // Apply filter
-  const filtered = lemmaFilter === 'all' ? allLemmas
+  let filtered = lemmaFilter === 'all' ? [...allLemmas]
     : lemmaFilter === 'known' ? allLemmas.filter(l => l.is_known)
     : allLemmas.filter(l => !l.is_known);
+
+  // Sort by learning priority: highest general frequency first (most useful to learn)
+  // For "all" view, unknown words float to top, then sorted by frequency
+  if (lemmaFilter === 'unknown') {
+    filtered.sort((a, b) => b.general_freq - a.general_freq);
+  } else if (lemmaFilter === 'all') {
+    filtered.sort((a, b) => {
+      if (a.is_known !== b.is_known) return a.is_known ? 1 : -1;
+      return b.general_freq - a.general_freq;
+    });
+  }
 
   const posColors: Record<string, string> = {
     NOUN: 'text-blue-400',
@@ -1707,7 +1718,9 @@ const corpusDeckInfo = document.getElementById('corpusDeckInfo') as HTMLDivEleme
 const corpusPreview = document.getElementById('corpusPreview') as HTMLDivElement;
 const corpusSentenceCount = document.getElementById('corpusSentenceCount') as HTMLSpanElement;
 const corpusSentenceList = document.getElementById('corpusSentenceList') as HTMLDivElement;
-const corpusBuildBtn = document.getElementById('corpusBuildBtn') as HTMLButtonElement;
+const corpusBuildLemmasBtn = document.getElementById('corpusBuildLemmasBtn') as HTMLButtonElement;
+const corpusBuildMWEsBtn = document.getElementById('corpusBuildMWEsBtn') as HTMLButtonElement;
+const corpusBuildBothBtn = document.getElementById('corpusBuildBothBtn') as HTMLButtonElement;
 const corpusCancelBtn = document.getElementById('corpusCancelBtn') as HTMLButtonElement;
 const corpusBuildProgress = document.getElementById('corpusBuildProgress') as HTMLDivElement;
 const corpusBuildProgressText = document.getElementById('corpusBuildProgressText') as HTMLSpanElement;
@@ -1729,6 +1742,12 @@ const statUnknownMWEs = document.getElementById('statUnknownMWEs') as HTMLDivEle
 const statLemmasByPos = document.getElementById('statLemmasByPos') as HTMLDivElement;
 const statMWEsByCategory = document.getElementById('statMWEsByCategory') as HTMLDivElement;
 const statImports = document.getElementById('statImports') as HTMLDivElement;
+const statEstimatedLevel = document.getElementById('statEstimatedLevel') as HTMLDivElement;
+const statFrequencyBands = document.getElementById('statFrequencyBands') as HTMLDivElement;
+const corpusResetBtn = document.getElementById('corpusResetBtn') as HTMLButtonElement;
+const lemmaSearchInput = document.getElementById('lemmaSearchInput') as HTMLInputElement;
+const lemmaSearchBtn = document.getElementById('lemmaSearchBtn') as HTMLButtonElement;
+const lemmaSearchResult = document.getElementById('lemmaSearchResult') as HTMLDivElement;
 
 let currentPage: 'main' | 'corpus' = 'main';
 let selectedCorpusDecks = new Set<string>();
@@ -1840,7 +1859,8 @@ corpusFetchBtn.addEventListener('click', async () => {
       return;
     }
 
-    corpusSentenceCount.textContent = `${corpusSentences.length} unique sentences (Front field only)`;
+    const migakuLemmas = res.migakuLemmas || [];
+    corpusSentenceCount.textContent = `${corpusSentences.length} unique sentences`;
 
     // Show preview (first 50)
     corpusSentenceList.innerHTML = '';
@@ -1860,18 +1880,41 @@ corpusFetchBtn.addEventListener('click', async () => {
 
     corpusPreview.classList.remove('hidden');
 
-    // Extract lemmas in background
-    corpusBuildBtn.disabled = true;
-    corpusBuildBtn.textContent = 'Extracting lemmas (SpaCy)...';
+    // Extract lemmas: SpaCy + merge with Migaku-extracted lemmas
+    setCorpusBuildBtnsDisabled(true);
+    corpusBuildLemmasBtn.textContent = 'Extracting lemmas (SpaCy)...';
     const lemmaRes = await window.api.extractLemmas(corpusSentences);
     if (lemmaRes.success && lemmaRes.lemmas) {
-      corpusLemmas = lemmaRes.lemmas;
-      corpusBuildBtn.textContent = `Build Corpus (${corpusLemmas.length} lemmas + MWEs)`;
+      // Merge SpaCy lemmas with Migaku-extracted lemmas (deduplicated by lemma key)
+      const lemmaMap = new Map<string, string>();
+      for (const l of lemmaRes.lemmas) {
+        lemmaMap.set(l.lemma, l.pos);
+      }
+      for (const l of migakuLemmas) {
+        if (!lemmaMap.has(l.lemma)) {
+          lemmaMap.set(l.lemma, l.pos);
+        }
+      }
+      corpusLemmas = Array.from(lemmaMap.entries())
+        .map(([lemma, pos]) => ({ lemma, pos }))
+        .sort((a, b) => a.lemma.localeCompare(b.lemma));
+      corpusBuildLemmasBtn.textContent = `Lemmas Only (${corpusLemmas.length})`;
+      corpusBuildBothBtn.textContent = `Both (${corpusLemmas.length} lemmas + MWEs)`;
     } else {
-      corpusBuildBtn.textContent = 'Build Corpus (lemma extraction failed, MWEs only)';
-      corpusLemmas = [];
+      // SpaCy failed — fall back to Migaku lemmas if available
+      if (migakuLemmas.length > 0) {
+        corpusLemmas = migakuLemmas;
+        corpusBuildLemmasBtn.textContent = `Lemmas Only (${corpusLemmas.length}, Migaku only)`;
+        corpusBuildBothBtn.textContent = `Both (${corpusLemmas.length} lemmas + MWEs)`;
+      } else {
+        corpusBuildLemmasBtn.textContent = 'Lemmas Only (extraction failed)';
+        corpusBuildLemmasBtn.disabled = true;
+        corpusBuildBothBtn.textContent = 'Both (lemma extraction failed)';
+        corpusBuildBothBtn.disabled = true;
+        corpusLemmas = [];
+      }
     }
-    corpusBuildBtn.disabled = false;
+    setCorpusBuildBtnsDisabled(false);
 
   } finally {
     corpusFetchBtn.textContent = 'Fetch Sentences';
@@ -1879,12 +1922,19 @@ corpusFetchBtn.addEventListener('click', async () => {
   }
 });
 
-// Build corpus (extract + normalize, then show for review)
-corpusBuildBtn.addEventListener('click', async () => {
+// Helper to enable/disable all three build buttons
+function setCorpusBuildBtnsDisabled(disabled: boolean): void {
+  corpusBuildLemmasBtn.disabled = disabled;
+  corpusBuildMWEsBtn.disabled = disabled;
+  corpusBuildBothBtn.disabled = disabled;
+}
+
+// Build corpus with mode: 'lemmas', 'mwes', or 'both'
+async function runCorpusBuild(mode: 'lemmas' | 'mwes' | 'both'): Promise<void> {
   if (corpusSentences.length === 0) return;
 
   corpusDeckName = [...selectedCorpusDecks].join('+');
-  corpusBuildBtn.disabled = true;
+  setCorpusBuildBtnsDisabled(true);
   corpusCancelBtn.classList.remove('hidden');
   corpusBuildProgress.classList.remove('hidden');
   corpusBuildProgressText.textContent = 'Starting...';
@@ -1895,20 +1945,39 @@ corpusBuildBtn.addEventListener('click', async () => {
       deckName: corpusDeckName,
       sentences: corpusSentences,
       lemmas: corpusLemmas,
+      mode,
     });
 
-    if (res.success && res.mwes) {
+    if (res.success) {
       corpusLemmaCount = res.lemmaCount || 0;
       corpusSkippedCount = res.skippedCount || 0;
       corpusNewSentenceCount = res.sentenceCount || 0;
 
-      if (corpusNewSentenceCount === 0 && corpusSkippedCount > 0) {
-        corpusBuildProgressText.textContent = `All ${corpusSkippedCount} sentences have already been analyzed. Add new cards and try again.`;
-      } else {
-        const skippedMsg = corpusSkippedCount > 0 ? ` (skipped ${corpusSkippedCount} already-processed)` : '';
-        corpusBuildProgressText.textContent = `Extracted ${res.mwes.length} MWEs from ${corpusNewSentenceCount} new sentences${skippedMsg}. Review below.`;
+      if (mode === 'lemmas') {
+        // Lemmas-only: no MWE review needed
+        corpusBuildProgressText.textContent = `Stored ${corpusLemmaCount} lemmas. No MWE extraction needed.`;
+        // Mark sentences as processed immediately for lemma-only mode
+        if (corpusSentences.length > 0) {
+          await window.api.approveCorpusMWEs({
+            deckName: corpusDeckName,
+            mwes: [],
+            sentenceCount: corpusNewSentenceCount || corpusSentences.length,
+            lemmaCount: corpusLemmaCount,
+            processedSentences: corpusSentences,
+          });
+        }
+        refreshCorpusStats();
+      } else if (res.mwes) {
+        // MWEs or Both mode
+        if (corpusNewSentenceCount === 0 && corpusSkippedCount > 0) {
+          corpusBuildProgressText.textContent = `All ${corpusSkippedCount} sentences have already been analyzed. Add new cards and try again.`;
+        } else {
+          const skippedMsg = corpusSkippedCount > 0 ? ` (skipped ${corpusSkippedCount} already-processed)` : '';
+          const modeLabel = mode === 'mwes' ? 'MWEs' : 'lemmas + MWEs';
+          corpusBuildProgressText.textContent = `Extracted ${res.mwes.length} MWEs from ${corpusNewSentenceCount} new sentences${skippedMsg}. Review below.`;
+        }
+        if (res.mwes.length > 0) showMWEReview(res.mwes);
       }
-      if (res.mwes.length > 0) showMWEReview(res.mwes);
     } else if (res.error === 'cancelled') {
       corpusBuildProgressText.textContent = 'Cancelled';
     } else {
@@ -1917,10 +1986,15 @@ corpusBuildBtn.addEventListener('click', async () => {
   } catch (err) {
     corpusBuildProgressText.textContent = `Error: ${(err as Error).message}`;
   } finally {
-    corpusBuildBtn.disabled = false;
+    setCorpusBuildBtnsDisabled(false);
     corpusCancelBtn.classList.add('hidden');
+    corpusBuildProgress.classList.add('hidden');
   }
-});
+}
+
+corpusBuildLemmasBtn.addEventListener('click', () => runCorpusBuild('lemmas'));
+corpusBuildMWEsBtn.addEventListener('click', () => runCorpusBuild('mwes'));
+corpusBuildBothBtn.addEventListener('click', () => runCorpusBuild('both'));
 
 corpusCancelBtn.addEventListener('click', () => {
   window.api.cancelCorpusBuild();
@@ -2087,6 +2161,26 @@ async function refreshCorpusStats(): Promise<void> {
     renderBarChart(statLemmasByPos, stats.lemmasByPos.map(p => ({ label: p.pos, count: p.count })));
     renderBarChart(statMWEsByCategory, stats.mwesByCategory.map(c => ({ label: c.category, count: c.count })));
 
+    // Level profile
+    const lp = stats.levelProfile;
+    statEstimatedLevel.textContent = lp.estimatedLevel;
+    statFrequencyBands.innerHTML = '';
+    for (const band of lp.bands) {
+      const pct = Math.round(band.coverage * 100);
+      const isAboveFloor = band.minZipf >= lp.estimatedFloor;
+      const barColor = pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-500/70';
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-2';
+      row.innerHTML = `
+        <span class="text-[11px] ${isAboveFloor ? 'text-gray-300' : 'text-gray-500'} w-28 text-right shrink-0 font-mono">${escapeHtml(band.label)}</span>
+        <div class="flex-1 h-4 bg-bg-primary rounded overflow-hidden">
+          <div class="h-full ${barColor} rounded transition-all" style="width: ${pct}%"></div>
+        </div>
+        <span class="text-[11px] text-gray-500 w-20 shrink-0">${band.knownCount}/${band.totalEstimate} <span class="text-gray-600">${pct}%</span></span>
+      `;
+      statFrequencyBands.appendChild(row);
+    }
+
     // Import history
     statImports.innerHTML = '';
     if (stats.imports.length === 0) {
@@ -2111,6 +2205,55 @@ async function refreshCorpusStats(): Promise<void> {
     // Stats not available yet
   }
 }
+
+// Reset lemma database
+corpusResetBtn.addEventListener('click', async () => {
+  if (!confirm('This will delete all lemmas, import history, and processed sentence records. MWEs will not be affected. Continue?')) return;
+  corpusResetBtn.disabled = true;
+  corpusResetBtn.textContent = 'Resetting...';
+  try {
+    const res = await window.api.resetLemmaDatabase();
+    if (res.success) {
+      alert(`Deleted ${res.deletedLemmas} lemmas, ${res.deletedImports} imports, ${res.deletedProcessed} processed sentences.`);
+      refreshCorpusStats();
+    } else {
+      alert('Reset failed: ' + res.error);
+    }
+  } finally {
+    corpusResetBtn.disabled = false;
+    corpusResetBtn.textContent = 'Reset Lemma Database';
+  }
+});
+
+// Lemma lookup
+async function searchLemma(): Promise<void> {
+  const query = lemmaSearchInput.value.trim().toLowerCase();
+  if (!query) return;
+  lemmaSearchBtn.disabled = true;
+  lemmaSearchResult.classList.remove('hidden');
+  lemmaSearchResult.textContent = 'Searching...';
+  lemmaSearchResult.className = 'mt-2 text-sm text-gray-400';
+  try {
+    const res = await window.api.checkLemmaExists(query);
+    if (res.exists) {
+      lemmaSearchResult.className = 'mt-2 text-sm text-green-400';
+      lemmaSearchResult.innerHTML = `<span class="font-semibold">${query}</span> found — POS: <span class="text-white font-mono">${res.pos || '?'}</span>, Source: <span class="text-white">${res.source_deck || '?'}</span>`;
+    } else {
+      lemmaSearchResult.className = 'mt-2 text-sm text-red-400';
+      lemmaSearchResult.innerHTML = `<span class="font-semibold">${query}</span> not found in the lemma database.`;
+    }
+  } catch {
+    lemmaSearchResult.className = 'mt-2 text-sm text-red-400';
+    lemmaSearchResult.textContent = 'Error looking up lemma.';
+  } finally {
+    lemmaSearchBtn.disabled = false;
+  }
+}
+
+lemmaSearchBtn.addEventListener('click', searchLemma);
+lemmaSearchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') searchLemma();
+});
 
 // Make startDownload available to onclick in HTML
 window.startDownload = startDownload;

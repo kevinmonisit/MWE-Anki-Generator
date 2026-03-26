@@ -75,6 +75,7 @@ export function initMWEDatabase(dbPath: string): Database.Database {
       lemma TEXT UNIQUE NOT NULL,
       pos TEXT,
       source_deck TEXT NOT NULL,
+      general_freq REAL DEFAULT 0,
       first_seen_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS corpus_imports (
@@ -93,9 +94,12 @@ export function initMWEDatabase(dbPath: string): Database.Database {
       processed_at TEXT DEFAULT (datetime('now'))
     );
   `);
-  // Migration: add is_known column for existing databases
+  // Migrations for existing databases
   try {
     mweDb.exec(`ALTER TABLE mwe_types ADD COLUMN is_known INTEGER DEFAULT 0`);
+  } catch { /* column already exists */ }
+  try {
+    mweDb.exec(`ALTER TABLE known_lemmas ADD COLUMN general_freq REAL DEFAULT 0`);
   } catch { /* column already exists */ }
   return mweDb;
 }
@@ -468,18 +472,109 @@ export function getAllMWETypes(): MWETypeRow[] {
 export interface LemmaEntry {
   lemma: string;
   pos: string;
+  general_freq?: number;
 }
 
 export function storeLemmas(lemmas: LemmaEntry[], sourceDeck: string): number {
   const db = getMWEDb();
-  const insert = db.prepare('INSERT OR IGNORE INTO known_lemmas (lemma, pos, source_deck) VALUES (?, ?, ?)');
+  const insert = db.prepare('INSERT OR IGNORE INTO known_lemmas (lemma, pos, source_deck, general_freq) VALUES (?, ?, ?, ?)');
   const transaction = db.transaction(() => {
     for (const l of lemmas) {
-      insert.run(l.lemma, l.pos, sourceDeck);
+      insert.run(l.lemma, l.pos, sourceDeck, l.general_freq ?? 0);
     }
   });
   transaction();
   return lemmas.length;
+}
+
+export function checkLemmaExists(lemma: string): { exists: boolean; pos?: string; source_deck?: string } {
+  const db = getMWEDb();
+  const row = db.prepare('SELECT lemma, pos, source_deck FROM known_lemmas WHERE lemma = ?').get(lemma) as { lemma: string; pos: string; source_deck: string } | undefined;
+  if (row) {
+    return { exists: true, pos: row.pos, source_deck: row.source_deck };
+  }
+  return { exists: false };
+}
+
+export function resetLemmaDatabase(): { deletedLemmas: number; deletedImports: number; deletedProcessed: number } {
+  const db = getMWEDb();
+  const lemmaCount = (db.prepare('SELECT COUNT(*) as c FROM known_lemmas').get() as { c: number }).c;
+  const importCount = (db.prepare('SELECT COUNT(*) as c FROM corpus_imports').get() as { c: number }).c;
+  const processedCount = (db.prepare('SELECT COUNT(*) as c FROM processed_sentences').get() as { c: number }).c;
+  db.prepare('DELETE FROM known_lemmas').run();
+  db.prepare('DELETE FROM corpus_imports').run();
+  db.prepare('DELETE FROM processed_sentences').run();
+  return { deletedLemmas: lemmaCount, deletedImports: importCount, deletedProcessed: processedCount };
+}
+
+// --- Level inference ---
+
+export interface FrequencyBand {
+  label: string;
+  minZipf: number;
+  maxZipf: number;
+  knownCount: number;
+  totalEstimate: number;
+  coverage: number; // 0-1
+}
+
+export interface LevelProfile {
+  bands: FrequencyBand[];
+  estimatedFloor: number; // zipf frequency floor: words >= this are presumed known
+  estimatedLevel: string; // human-readable label
+}
+
+/**
+ * Compute frequency band coverage from known lemmas.
+ * Bands are defined by zipf frequency ranges. We estimate total Spanish lemmas
+ * per band using rough counts from frequency dictionaries.
+ *
+ * Zipf scale (wordfreq): 7 = ultra-common ("de"), 1 = very rare
+ */
+export function getLevelProfile(): LevelProfile {
+  const db = getMWEDb();
+  const knownLemmas = db.prepare('SELECT lemma, general_freq FROM known_lemmas WHERE general_freq > 0').all() as { lemma: string; general_freq: number }[];
+
+  // Define frequency bands with estimated total Spanish content lemmas per band
+  // These estimates come from Spanish frequency dictionaries
+  const bandDefs = [
+    { label: '6-7 (Top 100)',      minZipf: 6, maxZipf: 7, totalEstimate: 80 },
+    { label: '5-6 (Top 500)',      minZipf: 5, maxZipf: 6, totalEstimate: 350 },
+    { label: '4-5 (Top 2K)',       minZipf: 4, maxZipf: 5, totalEstimate: 1200 },
+    { label: '3-4 (Top 8K)',       minZipf: 3, maxZipf: 4, totalEstimate: 4500 },
+    { label: '2-3 (Top 25K)',      minZipf: 2, maxZipf: 3, totalEstimate: 12000 },
+    { label: '1-2 (Rare)',         minZipf: 1, maxZipf: 2, totalEstimate: 20000 },
+    { label: '0-1 (Very rare)',    minZipf: 0, maxZipf: 1, totalEstimate: 30000 },
+  ];
+
+  const bands: FrequencyBand[] = bandDefs.map(def => {
+    const knownInBand = knownLemmas.filter(l => l.general_freq >= def.minZipf && l.general_freq < def.maxZipf).length;
+    const coverage = Math.min(1, knownInBand / def.totalEstimate);
+    return { ...def, knownCount: knownInBand, coverage };
+  });
+
+  // Find the floor: lowest band where coverage >= 80%
+  // Walk from highest frequency down
+  let estimatedFloor = 7; // default: assume nothing known
+  for (const band of bands) {
+    if (band.coverage >= 0.8) {
+      estimatedFloor = band.minZipf;
+    } else {
+      break; // stop at first band without good coverage
+    }
+  }
+
+  // Human-readable level based on floor
+  let estimatedLevel: string;
+  if (estimatedFloor <= 1) estimatedLevel = 'C2 (Near-native)';
+  else if (estimatedFloor <= 2) estimatedLevel = 'C1 (Advanced)';
+  else if (estimatedFloor <= 3) estimatedLevel = 'B2 (Upper intermediate)';
+  else if (estimatedFloor <= 4) estimatedLevel = 'B1 (Intermediate)';
+  else if (estimatedFloor <= 5) estimatedLevel = 'A2 (Elementary)';
+  else if (estimatedFloor <= 6) estimatedLevel = 'A1 (Beginner)';
+  else estimatedLevel = 'Pre-A1';
+
+  return { bands, estimatedFloor, estimatedLevel };
 }
 
 export function getCorpusStats(): {
@@ -490,6 +585,7 @@ export function getCorpusStats(): {
   lemmasByPos: { pos: string; count: number }[];
   mwesByCategory: { category: string; count: number }[];
   imports: { deck_name: string; sentence_count: number; lemma_count: number; mwe_count: number; imported_at: string }[];
+  levelProfile: LevelProfile;
 } {
   const db = getMWEDb();
 
@@ -516,7 +612,9 @@ export function getCorpusStats(): {
 
   const imports = db.prepare('SELECT deck_name, sentence_count, lemma_count, mwe_count, imported_at FROM corpus_imports ORDER BY imported_at DESC').all() as { deck_name: string; sentence_count: number; lemma_count: number; mwe_count: number; imported_at: string }[];
 
-  return { totalLemmas, totalMWEs, knownMWEs, unknownMWEs: totalMWEs - knownMWEs, lemmasByPos, mwesByCategory, imports };
+  const levelProfile = getLevelProfile();
+
+  return { totalLemmas, totalMWEs, knownMWEs, unknownMWEs: totalMWEs - knownMWEs, lemmasByPos, mwesByCategory, imports, levelProfile };
 }
 
 export function recordCorpusImport(deckName: string, sentenceCount: number, lemmaCount: number, mweCount: number): void {

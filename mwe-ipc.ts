@@ -1,8 +1,38 @@
 import { app, ipcMain, BrowserWindow } from 'electron';
 import path from 'path';
-import { initMWEDatabase, runMWEPipeline, getMWEsForFolder, getAllMWETypes, markMWEsKnown, setCostCallback, storeLemmas, storeApprovedMWEs, getCorpusStats, recordCorpusImport, isCorpusImported, filterUnprocessedSentences, storeProcessedSentences, type CostCallback, type LemmaEntry, type MWEResult } from './mwe-pipeline';
+import { spawn } from 'child_process';
+import { initMWEDatabase, runMWEPipeline, getMWEsForFolder, getAllMWETypes, markMWEsKnown, setCostCallback, storeLemmas, storeApprovedMWEs, getCorpusStats, recordCorpusImport, isCorpusImported, filterUnprocessedSentences, storeProcessedSentences, resetLemmaDatabase, checkLemmaExists, type CostCallback, type LemmaEntry, type MWEResult } from './mwe-pipeline';
 
 let activeAbortController: AbortController | null = null;
+
+function batchZipfLookup(lemmas: LemmaEntry[]): Promise<LemmaEntry[]> {
+  return new Promise((resolve) => {
+    const venvPython = path.join(__dirname, '..', '.venv-spacy', 'bin', 'python3.13');
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'zipf_lookup.py');
+    const proc = spawn(venvPython, [scriptPath]);
+
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+    proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+    proc.stdin.write(JSON.stringify(lemmas));
+    proc.stdin.end();
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        try {
+          resolve(JSON.parse(stdout) as LemmaEntry[]);
+        } catch {
+          resolve(lemmas); // fallback: return without freq
+        }
+      } else {
+        resolve(lemmas); // fallback on error
+      }
+    });
+    proc.on('error', () => resolve(lemmas));
+  });
+}
 
 export function registerMWEHandlers(getMainWindow: () => BrowserWindow | null, getApiKey: () => string, onCost?: CostCallback): void {
   if (onCost) setCostCallback(onCost);
@@ -64,20 +94,36 @@ export function registerMWEHandlers(getMainWindow: () => BrowserWindow | null, g
 
   let corpusAbortController: AbortController | null = null;
 
-  ipcMain.handle('build-anki-corpus', async (_event, params: { deckName: string; sentences: string[]; lemmas: LemmaEntry[] }) => {
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      return { success: false, error: 'OpenAI API key not found in .env.local' };
-    }
-
-    const { deckName, sentences, lemmas } = params;
+  ipcMain.handle('build-anki-corpus', async (_event, params: { deckName: string; sentences: string[]; lemmas: LemmaEntry[]; mode?: 'lemmas' | 'mwes' | 'both' }) => {
+    const { deckName, sentences, lemmas, mode = 'both' } = params;
     const mainWindow = getMainWindow();
+    const doLemmas = mode === 'lemmas' || mode === 'both';
+    const doMWEs = mode === 'mwes' || mode === 'both';
 
-    // Step 1: Store lemmas immediately (no review needed)
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('corpus-progress', { stage: 'lemmas', message: `Storing ${lemmas.length} lemmas...` });
+    if (doMWEs) {
+      const apiKey = getApiKey();
+      if (!apiKey) {
+        return { success: false, error: 'OpenAI API key not found in .env.local' };
+      }
     }
-    const lemmaCount = storeLemmas(lemmas, deckName);
+
+    // Step 1: Store lemmas if requested (with frequency enrichment)
+    let lemmaCount = 0;
+    if (doLemmas) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('corpus-progress', { stage: 'lemmas', message: `Computing frequencies for ${lemmas.length} lemmas...` });
+      }
+      const enrichedLemmas = await batchZipfLookup(lemmas);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('corpus-progress', { stage: 'lemmas', message: `Storing ${enrichedLemmas.length} lemmas...` });
+      }
+      lemmaCount = storeLemmas(enrichedLemmas, deckName);
+    }
+
+    // If lemmas-only mode, return early — no MWE extraction needed
+    if (!doMWEs) {
+      return { success: true, lemmaCount, mwes: [], sentenceCount: sentences.length, skippedCount: 0 };
+    }
 
     // Step 2: Filter out already-processed sentences
     const { newSentences, skippedCount } = filterUnprocessedSentences(sentences);
@@ -154,5 +200,18 @@ export function registerMWEHandlers(getMainWindow: () => BrowserWindow | null, g
 
   ipcMain.handle('is-corpus-imported', async (_event, deckName: string) => {
     return isCorpusImported(deckName);
+  });
+
+  ipcMain.handle('check-lemma-exists', async (_event, lemma: string) => {
+    return checkLemmaExists(lemma);
+  });
+
+  ipcMain.handle('reset-lemma-database', async () => {
+    try {
+      const result = resetLemmaDatabase();
+      return { success: true, ...result };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
   });
 }

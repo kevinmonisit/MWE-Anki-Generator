@@ -50,6 +50,21 @@ interface CorpusProgress {
   message: string;
 }
 
+interface FrequencyBand {
+  label: string;
+  minZipf: number;
+  maxZipf: number;
+  knownCount: number;
+  totalEstimate: number;
+  coverage: number;
+}
+
+interface LevelProfile {
+  bands: FrequencyBand[];
+  estimatedFloor: number;
+  estimatedLevel: string;
+}
+
 interface CorpusStats {
   totalLemmas: number;
   totalMWEs: number;
@@ -58,6 +73,7 @@ interface CorpusStats {
   lemmasByPos: { pos: string; count: number }[];
   mwesByCategory: { category: string; count: number }[];
   imports: { deck_name: string; sentence_count: number; lemma_count: number; mwe_count: number; imported_at: string }[];
+  levelProfile: LevelProfile;
 }
 
 interface TranscriptLemma {
@@ -77,6 +93,7 @@ interface TranscriptLemmaResult {
   knownCount?: number;
   unknownCount?: number;
   analyzedAt?: string;
+  estimatedFloor?: number;
   error?: string;
 }
 
@@ -124,14 +141,16 @@ interface ElectronAPI {
   getApiCost: () => Promise<{ totalCost: number; entries: { model: string; promptTokens: number; completionTokens: number; costUsd: number; source: string; timestamp: number }[] }>;
   resetApiCost: () => Promise<{ success: boolean }>;
   onApiCostUpdate: (callback: (data: { totalCost: number }) => void) => void;
-  fetchAnkiNotes: (deckNames: string[]) => Promise<{ success: boolean; sentences?: string[]; totalNotes?: number; error?: string }>;
+  fetchAnkiNotes: (deckNames: string[]) => Promise<{ success: boolean; sentences?: string[]; totalNotes?: number; migakuLemmas?: { lemma: string; pos: string }[]; error?: string }>;
   extractLemmas: (sentences: string[]) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string }[]; error?: string }>;
-  buildAnkiCorpus: (params: { deckName: string; sentences: string[]; lemmas: { lemma: string; pos: string }[] }) => Promise<{ success: boolean; lemmaCount?: number; mwes?: MWEResult[]; sentenceCount?: number; skippedCount?: number; error?: string }>;
+  buildAnkiCorpus: (params: { deckName: string; sentences: string[]; lemmas: { lemma: string; pos: string }[]; mode?: 'lemmas' | 'mwes' | 'both' }) => Promise<{ success: boolean; lemmaCount?: number; mwes?: MWEResult[]; sentenceCount?: number; skippedCount?: number; error?: string }>;
   approveCorpusMWEs: (params: { deckName: string; mwes: MWEResult[]; sentenceCount: number; lemmaCount: number; processedSentences?: string[] }) => Promise<{ success: boolean; stored?: number }>;
   cancelCorpusBuild: () => Promise<void>;
   onCorpusProgress: (callback: (progress: CorpusProgress) => void) => void;
   getCorpusStats: () => Promise<CorpusStats>;
   isCorpusImported: (deckName: string) => Promise<boolean>;
+  checkLemmaExists: (lemma: string) => Promise<{ exists: boolean; pos?: string; source_deck?: string }>;
+  resetLemmaDatabase: () => Promise<{ success: boolean; deletedLemmas?: number; deletedImports?: number; deletedProcessed?: number; error?: string }>;
   analyzeTranscriptLemmas: (folder: string) => Promise<TranscriptLemmaResult>;
   loadTranscriptLemmas: (folder: string) => Promise<TranscriptLemmaResult>;
 }

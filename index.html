@@ -169,10 +169,18 @@
             <span class="text-xs font-normal text-gray-500" id="corpusSentenceCount"></span>
           </div>
           <div class="max-h-[200px] overflow-y-auto py-2 px-4" id="corpusSentenceList"></div>
-          <div class="p-3 border-t border-border-primary flex gap-2 items-center">
-            <button id="corpusBuildBtn"
-              class="py-2 px-5 border-none rounded-md bg-green-600 text-white text-xs font-semibold cursor-pointer transition-colors hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed">
-              Build Corpus (Lemmas + MWEs)
+          <div class="p-3 border-t border-border-primary flex gap-2 items-center flex-wrap">
+            <button id="corpusBuildLemmasBtn"
+              class="py-2 px-4 border-none rounded-md bg-blue-600 text-white text-xs font-semibold cursor-pointer transition-colors hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed">
+              Lemmas Only
+            </button>
+            <button id="corpusBuildMWEsBtn"
+              class="py-2 px-4 border-none rounded-md bg-purple-600 text-white text-xs font-semibold cursor-pointer transition-colors hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed">
+              MWEs Only
+            </button>
+            <button id="corpusBuildBothBtn"
+              class="py-2 px-4 border-none rounded-md bg-green-600 text-white text-xs font-semibold cursor-pointer transition-colors hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed">
+              Both
             </button>
             <button id="corpusCancelBtn"
               class="hidden py-2 px-4 border border-red-600 rounded-md bg-transparent text-red-400 text-xs font-semibold cursor-pointer transition-colors hover:bg-red-600/20">
@@ -210,6 +218,20 @@
           <div class="max-w-3xl mx-auto">
             <h2 class="text-lg font-bold text-accent mb-4">Corpus Dashboard</h2>
 
+            <!-- Lemma Lookup -->
+            <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary mb-5">
+              <div class="text-xs text-gray-500 uppercase tracking-wider mb-2">Lemma Lookup</div>
+              <div class="flex gap-2">
+                <input id="lemmaSearchInput" type="text" placeholder="Type a lemma (e.g. correr, casa)..."
+                  class="flex-1 bg-bg-primary border border-border-primary rounded-md px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-accent transition-colors" />
+                <button id="lemmaSearchBtn"
+                  class="py-2 px-4 border-none rounded-md bg-accent text-white text-xs font-semibold cursor-pointer transition-colors hover:bg-accent-hover disabled:bg-gray-700 disabled:cursor-not-allowed">
+                  Search
+                </button>
+              </div>
+              <div id="lemmaSearchResult" class="mt-2 text-sm hidden"></div>
+            </div>
+
             <!-- Top-level stats cards -->
             <div class="grid grid-cols-4 gap-3 mb-5" id="corpusStatCards">
               <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary">
@@ -230,6 +252,16 @@
               </div>
             </div>
 
+            <!-- Estimated Level -->
+            <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary mb-4">
+              <div class="flex items-center justify-between mb-3">
+                <div class="text-xs text-gray-500 uppercase tracking-wider">Estimated Level</div>
+                <div class="text-lg font-bold text-white" id="statEstimatedLevel">-</div>
+              </div>
+              <div class="text-[10px] text-gray-600 mb-2">Coverage by frequency band (80%+ = presumed known at that level)</div>
+              <div id="statFrequencyBands" class="space-y-1.5"></div>
+            </div>
+
             <!-- Lemmas by POS -->
             <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary mb-4">
               <div class="text-xs text-gray-500 uppercase tracking-wider mb-3">Lemmas by Part of Speech</div>
@@ -243,9 +275,14 @@
             </div>
 
             <!-- Import History -->
-            <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary">
+            <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary mb-4">
               <div class="text-xs text-gray-500 uppercase tracking-wider mb-3">Import History</div>
               <div id="statImports" class="space-y-2"></div>
+            </div>
+
+            <!-- Reset -->
+            <div class="flex justify-end">
+              <button id="corpusResetBtn" class="px-3 py-1.5 text-xs bg-red-900/30 text-red-400 rounded border border-red-800/50 hover:bg-red-900/50 transition-colors">Reset Lemma Database</button>
             </div>
           </div>
         </div>

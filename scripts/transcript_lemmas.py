@@ -43,7 +43,10 @@ def parse_srt(srt_path: str) -> list[str]:
 
 def extract_lemmas_with_freq(sentences: list[str]) -> list[dict]:
     """Extract lemmas with transcript frequency and general frequency scores."""
-    lemma_counts: dict[str, dict] = {}  # lemma -> {pos, count, first_sentence_index}
+    import math
+
+    # Key by (lemma, pos) so the same lemma used as different POS gets separate entries
+    lemma_pos_data: dict[tuple[str, str], dict] = {}
 
     for sent_idx, doc in enumerate(nlp.pipe(sentences, batch_size=50)):
         for token in doc:
@@ -51,38 +54,30 @@ def extract_lemmas_with_freq(sentences: list[str]) -> list[dict]:
                 continue
             if token.pos_ not in CONTENT_POS:
                 continue
-            # Skip numbers
             if token.like_num:
                 continue
 
             lemma = token.lemma_.lower()
-            if lemma not in lemma_counts:
-                lemma_counts[lemma] = {"pos": token.pos_, "count": 0, "first_sentence_index": sent_idx}
-            lemma_counts[lemma]["count"] += 1
+            key = (lemma, token.pos_)
+            if key not in lemma_pos_data:
+                lemma_pos_data[key] = {"count": 0, "first_sentence_index": sent_idx}
+            lemma_pos_data[key]["count"] += 1
 
     results = []
-    for lemma, info in lemma_counts.items():
-        # zipf_frequency returns 0-8 scale (8 = most common like "the")
+    for (lemma, pos), info in lemma_pos_data.items():
         gen_freq = zipf_frequency(lemma, "es")
-
-        # Combined score: weight general frequency more heavily
-        # Higher general freq = more important to learn
-        # Higher transcript count = more relevant to this content
-        # Score formula: general_freq * 1.5 + log2(transcript_count)
-        import math
         transcript_bonus = math.log2(info["count"] + 1)
         score = gen_freq * 1.5 + transcript_bonus
 
         results.append({
             "lemma": lemma,
-            "pos": info["pos"],
+            "pos": pos,
             "transcript_count": info["count"],
             "general_freq": round(gen_freq, 2),
             "score": round(score, 2),
             "first_sentence_index": info["first_sentence_index"],
         })
 
-    # Sort by score descending (most important first)
     results.sort(key=lambda x: x["score"], reverse=True)
     return results
 

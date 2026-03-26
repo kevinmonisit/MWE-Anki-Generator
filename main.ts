@@ -3,6 +3,7 @@ import path from 'path';
 import { spawn, execFile, ChildProcess } from 'child_process';
 import fs from 'fs';
 import { registerMWEHandlers } from './mwe-ipc';
+import { getLevelProfile } from './mwe-pipeline';
 
 let mainWindow: BrowserWindow | null = null;
 let activeDownloadProc: ChildProcess | null = null;
@@ -491,21 +492,78 @@ ipcMain.handle('get-download-path', async (_event, folder: string) => {
   return path.join(DOWNLOADS_DIR, folder);
 });
 
-// IPC: Fetch notes from Anki decks (Basic note type only, Front field)
+// Migaku POS abbreviation -> UPOS tag mapping
+const MIGAKU_POS_MAP: Record<string, string> = {
+  'v': 'VERB', 'n': 'NOUN', 'adj': 'ADJ', 'adv': 'ADV',
+  'adp': 'ADP', 'pron': 'PRON', 'art': 'DET', 'sconj': 'SCONJ',
+  'propn': 'PROPN', 'intj': 'INTJ', 'conj': 'CCONJ', 'num': 'NUM',
+  'det': 'DET', 'aux': 'AUX', 'part': 'PART',
+};
+
+/**
+ * Parse a Migaku-annotated sentence field.
+ * Format: word[lemma,pos,features|lemma2,pos2,features2]
+ * Returns clean text (brackets stripped) and extracted lemmas.
+ */
+function parseMigakuSentence(raw: string): { cleanText: string; lemmas: { lemma: string; pos: string }[] } {
+  const lemmaMap = new Map<string, string>(); // lemma -> UPOS
+
+  // Extract lemmas from bracket annotations (first analysis per word)
+  const bracketRegex = /\[([^\]]*)\]/g;
+  let match;
+  while ((match = bracketRegex.exec(raw)) !== null) {
+    const content = match[1];
+    // Take only the first analysis (before any |)
+    const firstAnalysis = content.split('|')[0];
+    const parts = firstAnalysis.split(',');
+    if (parts.length >= 2) {
+      const lemma = parts[0].trim().toLowerCase();
+      const pos = parts[1].trim().toLowerCase();
+      if (lemma && lemma.length > 1 && pos) {
+        const upos = MIGAKU_POS_MAP[pos] || pos.toUpperCase();
+        if (!lemmaMap.has(lemma)) {
+          lemmaMap.set(lemma, upos);
+        }
+      }
+    }
+  }
+
+  // Strip all bracket annotations to get clean text
+  const cleanText = raw.replace(/\[[^\]]*\]/g, '').trim();
+
+  const lemmas = Array.from(lemmaMap.entries())
+    .map(([lemma, pos]) => ({ lemma, pos }))
+    .sort((a, b) => a.lemma.localeCompare(b.lemma));
+
+  return { cleanText, lemmas };
+}
+
+/**
+ * Strip Anki cloze deletion markup from text.
+ * {{c1::word::hint}} -> word
+ * {{c1::word}} -> word
+ */
+function stripCloze(text: string): string {
+  return text
+    .replace(/\{\{c\d+::(.*?)(?:::.*?)?\}\}/g, (_match, content: string) => content.trim())
+    .replace(/  +/g, ' ');
+}
+
+// IPC: Fetch notes from Anki decks (auto-detects note format by fields)
 ipcMain.handle('fetch-anki-notes', async (_event, deckNames: string[]) => {
   try {
     const allSentences: string[] = [];
+    const migakuLemmaMap = new Map<string, string>(); // aggregated migaku lemmas
 
     for (const deck of deckNames) {
-      // Find all Basic notes in this deck
-      const notesRes = await ankiRequest('findNotes', { query: `"deck:${deck}" "note:Basic"` });
-      if (notesRes.error) {
-        return { success: false, error: `Failed to find notes in ${deck}: ${notesRes.error}` };
+      // Fetch all non-suspended notes in the deck
+      const res = await ankiRequest('findNotes', { query: `"deck:${deck}" -is:suspended` });
+      if (res.error) {
+        return { success: false, error: `Failed to find notes in ${deck}: ${res.error}` };
       }
-      const noteIds = notesRes.result as number[];
+      const noteIds = res.result as number[];
       if (noteIds.length === 0) continue;
 
-      // Get note info in batches of 100
       for (let i = 0; i < noteIds.length; i += 100) {
         const batch = noteIds.slice(i, i + 100);
         const infoRes = await ankiRequest('notesInfo', { notes: batch });
@@ -513,17 +571,56 @@ ipcMain.handle('fetch-anki-notes', async (_event, deckNames: string[]) => {
 
         const notes = infoRes.result as { fields: Record<string, { value: string }> }[];
         for (const note of notes) {
-          const front = note.fields?.Front?.value || '';
-          // Strip HTML tags
-          const cleanFront = front.replace(/<[^>]*>/g, '').trim();
-          if (cleanFront) allSentences.push(cleanFront);
+          const fields = note.fields || {};
+          let raw = '';
+
+          // Detect format by fields present:
+          // 1. Migaku/standard: has "Sentence" field with bracket annotations
+          // 2. Cloze: has "Text" field with {{c1::...}} markup
+          // 3. Vocab: has "Word" field (single words/phrases)
+          // 4. Basic: has "Front" field
+          if (fields.Sentence?.value) {
+            raw = fields.Sentence.value.replace(/<[^>]*>/g, '');
+            const { cleanText, lemmas } = parseMigakuSentence(raw);
+            if (cleanText) allSentences.push(cleanText);
+            for (const l of lemmas) {
+              if (!migakuLemmaMap.has(l.lemma)) {
+                migakuLemmaMap.set(l.lemma, l.pos);
+              }
+            }
+            continue;
+          }
+
+          if (fields.Text?.value) {
+            raw = fields.Text.value.replace(/<[^>]*>/g, '');
+            const clean = stripCloze(raw).trim();
+            if (clean) allSentences.push(clean);
+            continue;
+          }
+
+          if (fields.Word?.value) {
+            raw = fields.Word.value.replace(/<[^>]*>/g, '').trim();
+            if (raw) allSentences.push(raw);
+            continue;
+          }
+
+          if (fields.Front?.value) {
+            raw = fields.Front.value.replace(/<[^>]*>/g, '').trim();
+            if (raw) allSentences.push(raw);
+          }
         }
       }
     }
 
-    // Deduplicate
+    // Deduplicate sentences
     const unique = [...new Set(allSentences)];
-    return { success: true, sentences: unique, totalNotes: unique.length };
+
+    // Convert aggregated migaku lemmas to array
+    const migakuLemmas = Array.from(migakuLemmaMap.entries())
+      .map(([lemma, pos]) => ({ lemma, pos }))
+      .sort((a, b) => a.lemma.localeCompare(b.lemma));
+
+    return { success: true, sentences: unique, totalNotes: unique.length, migakuLemmas };
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
@@ -607,10 +704,17 @@ ipcMain.handle('analyze-transcript-lemmas', async (_event, folder: string) => {
             knownSet = new Set(knownRows.map((r: { lemma: string }) => r.lemma.toLowerCase()));
           }
 
-          const taggedLemmas = allLemmas.map(l => ({ ...l, is_known: knownSet.has(l.lemma) }));
+          // Get level floor for presumed-known inference
+          let estimatedFloor = 7;
+          try { estimatedFloor = getLevelProfile().estimatedFloor; } catch { /* DB not ready */ }
+
+          const taggedLemmas = allLemmas.map(l => ({
+            ...l,
+            is_known: knownSet.has(l.lemma) || l.general_freq >= estimatedFloor,
+          }));
           const knownCount = taggedLemmas.filter(l => l.is_known).length;
           saveLemmasToDisk(folder, taggedLemmas);
-          resolve({ success: true, lemmas: taggedLemmas, totalInTranscript: allLemmas.length, knownCount, unknownCount: allLemmas.length - knownCount });
+          resolve({ success: true, lemmas: taggedLemmas, totalInTranscript: allLemmas.length, knownCount, unknownCount: allLemmas.length - knownCount, estimatedFloor });
         } catch {
           resolve({ success: false, error: 'Failed to parse lemma output' });
         }
@@ -630,8 +734,27 @@ ipcMain.handle('load-transcript-lemmas', async (_event, folder: string) => {
   const saved = loadLemmasFromDisk(folder);
   if (!saved) return { success: false };
   const { lemmas, analyzedAt } = saved;
+
+  // Re-tag is_known against current DB so counts stay fresh
+  const dbPath = path.join(app.getPath('userData'), 'mwe.db');
+  let knownSet = new Set<string>();
+  if (fs.existsSync(dbPath)) {
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath, { readonly: true });
+    const knownRows = db.prepare('SELECT lemma FROM known_lemmas').all() as { lemma: string }[];
+    db.close();
+    knownSet = new Set(knownRows.map((r: { lemma: string }) => r.lemma.toLowerCase()));
+  }
+  // Get level floor for presumed-known inference
+  let estimatedFloor = 7;
+  try { estimatedFloor = getLevelProfile().estimatedFloor; } catch { /* DB not ready */ }
+
+  for (const l of lemmas) {
+    l.is_known = knownSet.has(l.lemma) || l.general_freq >= estimatedFloor;
+  }
+
   const knownCount = lemmas.filter((l: TranscriptLemmaData) => l.is_known).length;
-  return { success: true, lemmas, analyzedAt, totalInTranscript: lemmas.length, knownCount, unknownCount: lemmas.length - knownCount };
+  return { success: true, lemmas, analyzedAt, totalInTranscript: lemmas.length, knownCount, unknownCount: lemmas.length - knownCount, estimatedFloor };
 });
 
 // --- subs2srs export to Anki ---

@@ -80,7 +80,7 @@ export interface ElectronAPI {
   getApiCost: () => Promise<{ totalCost: number; entries: { model: string; promptTokens: number; completionTokens: number; costUsd: number; source: string; timestamp: number }[] }>;
   resetApiCost: () => Promise<{ success: boolean }>;
   onApiCostUpdate: (callback: (data: { totalCost: number }) => void) => void;
-  fetchAnkiNotes: (deckNames: string[]) => Promise<{ success: boolean; sentences?: string[]; totalNotes?: number; error?: string }>;
+  fetchAnkiNotes: (deckNames: string[]) => Promise<{ success: boolean; sentences?: string[]; totalNotes?: number; migakuLemmas?: { lemma: string; pos: string }[]; error?: string }>;
   extractLemmas: (sentences: string[]) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string }[]; error?: string }>;
   buildAnkiCorpus: (params: { deckName: string; sentences: string[]; lemmas: { lemma: string; pos: string }[] }) => Promise<{ success: boolean; lemmaCount?: number; mwes?: MWEResult[]; sentenceCount?: number; skippedCount?: number; error?: string }>;
   approveCorpusMWEs: (params: { deckName: string; mwes: MWEResult[]; sentenceCount: number; lemmaCount: number; processedSentences?: string[] }) => Promise<{ success: boolean; stored?: number }>;
@@ -88,6 +88,8 @@ export interface ElectronAPI {
   onCorpusProgress: (callback: (progress: CorpusProgress) => void) => void;
   getCorpusStats: () => Promise<CorpusStats>;
   isCorpusImported: (deckName: string) => Promise<boolean>;
+  checkLemmaExists: (lemma: string) => Promise<{ exists: boolean; pos?: string; source_deck?: string }>;
+  resetLemmaDatabase: () => Promise<{ success: boolean; deletedLemmas?: number; deletedImports?: number; deletedProcessed?: number; error?: string }>;
   analyzeTranscriptLemmas: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; analyzedAt?: string; error?: string }>;
   loadTranscriptLemmas: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; analyzedAt?: string; error?: string }>;
 }
@@ -131,7 +133,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   fetchAnkiNotes: (deckNames: string[]) => ipcRenderer.invoke('fetch-anki-notes', deckNames),
   extractLemmas: (sentences: string[]) => ipcRenderer.invoke('extract-lemmas', sentences),
-  buildAnkiCorpus: (params: { deckName: string; sentences: string[]; lemmas: { lemma: string; pos: string }[] }) => ipcRenderer.invoke('build-anki-corpus', params),
+  buildAnkiCorpus: (params: { deckName: string; sentences: string[]; lemmas: { lemma: string; pos: string }[]; mode?: 'lemmas' | 'mwes' | 'both' }) => ipcRenderer.invoke('build-anki-corpus', params),
   approveCorpusMWEs: (params: { deckName: string; mwes: MWEResult[]; sentenceCount: number; lemmaCount: number }) => ipcRenderer.invoke('approve-corpus-mwes', params),
   cancelCorpusBuild: () => ipcRenderer.invoke('cancel-corpus-build'),
   onCorpusProgress: (callback: (progress: CorpusProgress) => void) => {
@@ -139,6 +141,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   getCorpusStats: () => ipcRenderer.invoke('get-corpus-stats'),
   isCorpusImported: (deckName: string) => ipcRenderer.invoke('is-corpus-imported', deckName),
+  checkLemmaExists: (lemma: string) => ipcRenderer.invoke('check-lemma-exists', lemma),
+  resetLemmaDatabase: () => ipcRenderer.invoke('reset-lemma-database'),
   analyzeTranscriptLemmas: (folder: string) => ipcRenderer.invoke('analyze-transcript-lemmas', folder),
   loadTranscriptLemmas: (folder: string) => ipcRenderer.invoke('load-transcript-lemmas', folder),
 } satisfies ElectronAPI);
