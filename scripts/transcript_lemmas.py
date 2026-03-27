@@ -164,9 +164,13 @@ def lookup_cefr(lemma, pos, by_lemma_pos, by_lemma):
 
 
 def parse_srt(srt_path: str) -> list[str]:
-    """Parse SRT file and return list of text lines."""
+    """Parse SRT file and return list of text lines.
+
+    Handles YouTube auto-generated subtitles that split words across blocks
+    (e.g. "siguien" / "te episodio") by rejoining fragments.
+    """
     content = Path(srt_path).read_text(encoding="utf-8")
-    lines = []
+    raw_lines = []
     for block in re.split(r"\n\n+", content.strip()):
         parts = block.split("\n")
         if len(parts) >= 3:
@@ -176,7 +180,29 @@ def parse_srt(srt_path: str) -> list[str]:
             text = re.sub(r"<[^>]+>", "", text)
             text = text.strip()
             if text:
-                lines.append(text)
+                raw_lines.append(text)
+
+    # Rejoin words split across subtitle blocks.
+    # If a line ends without sentence-ending punctuation and the next line
+    # starts with a lowercase letter, the last word may have been split.
+    lines = []
+    for text in raw_lines:
+        if lines and not re.search(r'[.!?…¿¡"\'\)\]]\s*$', lines[-1]):
+            # Previous line didn't end with punctuation — check for split word
+            last_word = lines[-1].rsplit(None, 1)[-1] if lines[-1] else ""
+            first_word = text.split(None, 1)[0] if text else ""
+            # If last word has no valid lemma and joining with next word's start
+            # produces a real word, they were split
+            if last_word and first_word and first_word[0].islower():
+                joined = last_word + first_word
+                if zipf_frequency(joined.lower(), "es") > zipf_frequency(last_word.lower(), "es"):
+                    # Rejoin: replace last word in previous line with joined word,
+                    # and remove first word from current line
+                    lines[-1] = lines[-1][:-(len(last_word))] + joined
+                    rest = text.split(None, 1)
+                    text = rest[1] if len(rest) > 1 else ""
+        if text:
+            lines.append(text)
     return lines
 
 
@@ -237,6 +263,13 @@ def extract_lemmas_with_freq(sentences: list[str]) -> list[dict]:
 
             # Filter after clitic fix (clitic fix can change POS to VERB)
             if pos not in CONTENT_POS:
+                continue
+
+            # Skip garbled auto-generated subtitle fragments (e.g. "siguien",
+            # "artícu", "fren"). These are truncated words from YouTube's
+            # word-level subtitle timing. Zipf < 2.5 catches all observed
+            # junk while keeping real uncommon words (zapoteco=2.48, popó=2.58).
+            if zipf_frequency(lemma, "es") < 2.5:
                 continue
 
             key = (lemma, pos)
