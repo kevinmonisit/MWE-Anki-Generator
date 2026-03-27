@@ -100,11 +100,9 @@ export function registerMWEHandlers(getMainWindow: () => BrowserWindow | null, g
     const doLemmas = mode === 'lemmas' || mode === 'both';
     const doMWEs = mode === 'mwes' || mode === 'both';
 
-    if (doMWEs) {
-      const apiKey = getApiKey();
-      if (!apiKey) {
-        return { success: false, error: 'OpenAI API key not found in .env.local' };
-      }
+    const apiKey = getApiKey();
+    if (doMWEs && !apiKey) {
+      return { success: false, error: 'OpenAI API key not found in .env.local' };
     }
 
     // Step 1: Store lemmas if requested (with frequency enrichment)

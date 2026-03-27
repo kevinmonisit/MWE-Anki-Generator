@@ -50,18 +50,16 @@ interface CorpusProgress {
   message: string;
 }
 
-interface FrequencyBand {
-  label: string;
-  minZipf: number;
-  maxZipf: number;
+interface CEFRBand {
+  level: string;
   knownCount: number;
-  totalEstimate: number;
+  totalInList: number;
   coverage: number;
 }
 
 interface LevelProfile {
-  bands: FrequencyBand[];
-  estimatedFloor: number;
+  bands: CEFRBand[];
+  floorLevel: string;
   estimatedLevel: string;
 }
 
@@ -83,7 +81,11 @@ interface TranscriptLemma {
   general_freq: number;
   score: number;
   first_sentence_index: number;
+  sentence_indices: number[];
   is_known: boolean;
+  known_source: 'deck' | 'level' | null;
+  cefr_level?: string | null;
+  one_t_count: number;
 }
 
 interface TranscriptLemmaResult {
@@ -93,7 +95,7 @@ interface TranscriptLemmaResult {
   knownCount?: number;
   unknownCount?: number;
   analyzedAt?: string;
-  estimatedFloor?: number;
+  userLevel?: string;
   error?: string;
 }
 
@@ -119,8 +121,8 @@ interface ElectronAPI {
   ankiInvoke: (action: string, params?: Record<string, unknown>) => Promise<{ result: unknown; error: string | null }>;
   explainText: (params: { selectedText: string; fullSentence: string; sentenceBefore: string; sentenceAfter: string }) => Promise<{ success: boolean; translation?: string; explanation?: string; error?: string }>;
   getDownloadPath: (folder: string) => Promise<string>;
-  loadSettings: () => Promise<{ selectedDeck: string; chunkingDeck: string }>;
-  saveSettings: (settings: { selectedDeck: string; chunkingDeck: string }) => Promise<{ success: boolean }>;
+  loadSettings: () => Promise<{ selectedDeck: string; chunkingDeck: string; userLevel: string }>;
+  saveSettings: (settings: { selectedDeck: string; chunkingDeck: string; userLevel: string }) => Promise<{ success: boolean }>;
   loadCards: (folder: string) => Promise<Card[]>;
   saveCards: (folder: string, cards: Card[]) => Promise<{ success: boolean }>;
   exportCardsToAnki: (params: {

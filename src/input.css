@@ -48,6 +48,7 @@
 .pipeline-arrow.active { color: #e94560; }
 
 /* Visibility toggles */
+.progress-bar { display: none; }
 .progress-bar.visible { display: block; }
 .content-area.visible { display: flex !important; }
 .anki-decks-dropdown.visible { display: block; }

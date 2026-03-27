@@ -1,5 +1,8 @@
 import Database from 'better-sqlite3';
 import { net } from 'electron';
+import { app } from 'electron';
+import fs from 'fs';
+import path from 'path';
 import { MWE_EXTRACTION_SYSTEM_PROMPT, MWE_NORMALIZATION_SYSTEM_PROMPT } from './mwe-prompts';
 
 export interface MWEResult {
@@ -100,6 +103,9 @@ export function initMWEDatabase(dbPath: string): Database.Database {
   } catch { /* column already exists */ }
   try {
     mweDb.exec(`ALTER TABLE known_lemmas ADD COLUMN general_freq REAL DEFAULT 0`);
+  } catch { /* column already exists */ }
+  try {
+    mweDb.exec(`ALTER TABLE known_lemmas ADD COLUMN cefr_level TEXT DEFAULT NULL`);
   } catch { /* column already exists */ }
   return mweDb;
 }
@@ -473,14 +479,15 @@ export interface LemmaEntry {
   lemma: string;
   pos: string;
   general_freq?: number;
+  cefr_level?: string | null;
 }
 
 export function storeLemmas(lemmas: LemmaEntry[], sourceDeck: string): number {
   const db = getMWEDb();
-  const insert = db.prepare('INSERT OR IGNORE INTO known_lemmas (lemma, pos, source_deck, general_freq) VALUES (?, ?, ?, ?)');
+  const insert = db.prepare('INSERT OR IGNORE INTO known_lemmas (lemma, pos, source_deck, general_freq, cefr_level) VALUES (?, ?, ?, ?, ?)');
   const transaction = db.transaction(() => {
     for (const l of lemmas) {
-      insert.run(l.lemma, l.pos, sourceDeck, l.general_freq ?? 0);
+      insert.run(l.lemma, l.pos, sourceDeck, l.general_freq ?? 0, l.cefr_level ?? null);
     }
   });
   transaction();
@@ -507,74 +514,162 @@ export function resetLemmaDatabase(): { deletedLemmas: number; deletedImports: n
   return { deletedLemmas: lemmaCount, deletedImports: importCount, deletedProcessed: processedCount };
 }
 
-// --- Level inference ---
+// --- Level inference (CEFR-based) ---
 
-export interface FrequencyBand {
-  label: string;
-  minZipf: number;
-  maxZipf: number;
+const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const;
+const CEFR_LABELS: Record<string, string> = {
+  A1: 'A1 (Beginner)',
+  A2: 'A2 (Elementary)',
+  B1: 'B1 (Intermediate)',
+  B2: 'B2 (Upper intermediate)',
+  C1: 'C1 (Advanced)',
+  C2: 'C2 (Near-native)',
+};
+
+export interface CEFRBand {
+  level: string;
   knownCount: number;
-  totalEstimate: number;
+  totalInList: number;
   coverage: number; // 0-1
 }
 
 export interface LevelProfile {
-  bands: FrequencyBand[];
-  estimatedFloor: number; // zipf frequency floor: words >= this are presumed known
+  bands: CEFRBand[];
+  floorLevel: string; // highest CEFR level with >= 80% coverage
   estimatedLevel: string; // human-readable label
 }
 
-/**
- * Compute frequency band coverage from known lemmas.
- * Bands are defined by zipf frequency ranges. We estimate total Spanish lemmas
- * per band using rough counts from frequency dictionaries.
- *
- * Zipf scale (wordfreq): 7 = ultra-common ("de"), 1 = very rare
- */
+// Cache the CEFR lookup data
+interface CEFREntry { lemma: string; pos: string; cefr_level: string; general_freq: number }
+let cefrByLemmaPos: Map<string, string> | null = null;
+let cefrByLemma: Map<string, string> | null = null;
+let cefrTotalsPerLevel: Map<string, number> | null = null;
+let cefrAllEntries: CEFREntry[] | null = null;
+
+function loadCEFRData(): void {
+  if (cefrByLemmaPos) return; // already loaded
+
+  cefrByLemmaPos = new Map();
+  cefrByLemma = new Map();
+  cefrTotalsPerLevel = new Map();
+  cefrAllEntries = [];
+
+  for (const level of CEFR_LEVELS) cefrTotalsPerLevel.set(level, 0);
+
+  try {
+    const cefrPath = path.join(__dirname, '..', 'data', 'cefr_spanish.json');
+    const data = JSON.parse(fs.readFileSync(cefrPath, 'utf-8')) as CEFREntry[];
+    cefrAllEntries = data;
+
+    for (const entry of data) {
+      const key = `${entry.lemma}|${entry.pos}`;
+      const existing = cefrByLemmaPos.get(key);
+      if (!existing || CEFR_LEVELS.indexOf(entry.cefr_level as typeof CEFR_LEVELS[number]) < CEFR_LEVELS.indexOf(existing as typeof CEFR_LEVELS[number])) {
+        cefrByLemmaPos.set(key, entry.cefr_level);
+      }
+      const existingLemma = cefrByLemma.get(entry.lemma);
+      if (!existingLemma || CEFR_LEVELS.indexOf(entry.cefr_level as typeof CEFR_LEVELS[number]) < CEFR_LEVELS.indexOf(existingLemma as typeof CEFR_LEVELS[number])) {
+        cefrByLemma.set(entry.lemma, entry.cefr_level);
+      }
+      cefrTotalsPerLevel.set(entry.cefr_level, (cefrTotalsPerLevel.get(entry.cefr_level) || 0) + 1);
+    }
+  } catch { /* CEFR data not available */ }
+}
+
+export function lookupCEFR(lemma: string, pos?: string, generalFreq?: number): string | null {
+  loadCEFRData();
+  if (pos) {
+    const exact = cefrByLemmaPos!.get(`${lemma}|${pos}`);
+    if (exact) return exact;
+  }
+  const byLemma = cefrByLemma!.get(lemma);
+  if (byLemma) return byLemma;
+  // Fallback: estimate from Zipf frequency
+  if (generalFreq !== undefined && generalFreq >= 1.0) return zipfToCEFR(generalFreq);
+  return null;
+}
+
+/** Infer CEFR level from zipf frequency (fallback when not in CEFR list) */
+function zipfToCEFR(zipf: number): string {
+  if (zipf >= 5) return 'A1';
+  if (zipf >= 4) return 'A2';
+  if (zipf >= 3) return 'B1';
+  if (zipf >= 2) return 'B2';
+  if (zipf >= 1) return 'C1';
+  return 'C2';
+}
+
+export function cefrAtOrBelow(level: string | null, floor: string): boolean {
+  if (!level) return false;
+  return CEFR_LEVELS.indexOf(level as typeof CEFR_LEVELS[number]) <= CEFR_LEVELS.indexOf(floor as typeof CEFR_LEVELS[number]);
+}
+
 export function getLevelProfile(): LevelProfile {
+  loadCEFRData();
   const db = getMWEDb();
-  const knownLemmas = db.prepare('SELECT lemma, general_freq FROM known_lemmas WHERE general_freq > 0').all() as { lemma: string; general_freq: number }[];
+  const knownLemmas = db.prepare('SELECT lemma, pos, general_freq, cefr_level FROM known_lemmas').all() as { lemma: string; pos: string; general_freq: number; cefr_level: string | null }[];
 
-  // Define frequency bands with estimated total Spanish content lemmas per band
-  // These estimates come from Spanish frequency dictionaries
-  const bandDefs = [
-    { label: '6-7 (Top 100)',      minZipf: 6, maxZipf: 7, totalEstimate: 80 },
-    { label: '5-6 (Top 500)',      minZipf: 5, maxZipf: 6, totalEstimate: 350 },
-    { label: '4-5 (Top 2K)',       minZipf: 4, maxZipf: 5, totalEstimate: 1200 },
-    { label: '3-4 (Top 8K)',       minZipf: 3, maxZipf: 4, totalEstimate: 4500 },
-    { label: '2-3 (Top 25K)',      minZipf: 2, maxZipf: 3, totalEstimate: 12000 },
-    { label: '1-2 (Rare)',         minZipf: 1, maxZipf: 2, totalEstimate: 20000 },
-    { label: '0-1 (Very rare)',    minZipf: 0, maxZipf: 1, totalEstimate: 30000 },
-  ];
+  // Build a set of known lemmas for fast lookup
+  const knownLemmaSet = new Set<string>();
+  for (const l of knownLemmas) {
+    knownLemmaSet.add(l.lemma);
+  }
 
-  const bands: FrequencyBand[] = bandDefs.map(def => {
-    const knownInBand = knownLemmas.filter(l => l.general_freq >= def.minZipf && l.general_freq < def.maxZipf).length;
-    const coverage = Math.min(1, knownInBand / def.totalEstimate);
-    return { ...def, knownCount: knownInBand, coverage };
-  });
+  // Compute frequency threshold for presumed-known words:
+  // Use the 25th percentile zipf of known lemmas (conservative estimate).
+  // Words in the CEFR list with zipf above this are presumed known.
+  const knownFreqs = knownLemmas.map(l => l.general_freq).filter(f => f > 0).sort((a, b) => a - b);
+  let freqThreshold = 4.0; // default: top ~2000 words presumed known
+  if (knownFreqs.length > 50) {
+    const p25 = knownFreqs[Math.floor(knownFreqs.length * 0.25)];
+    freqThreshold = Math.min(p25, 5.0); // cap at 5.0 to avoid being too aggressive
+  }
 
-  // Find the floor: lowest band where coverage >= 80%
-  // Walk from highest frequency down
-  let estimatedFloor = 7; // default: assume nothing known
-  for (const band of bands) {
-    if (band.coverage >= 0.8) {
-      estimatedFloor = band.minZipf;
-    } else {
-      break; // stop at first band without good coverage
+  // Count known words per CEFR level from:
+  // 1. Words explicitly in the DB (matched to a CEFR level)
+  // 2. CEFR list words not in DB but with zipf >= threshold (presumed known)
+  const knownPerLevel = new Map<string, number>();
+  for (const level of CEFR_LEVELS) knownPerLevel.set(level, 0);
+
+  // First: count DB-known lemmas
+  for (const l of knownLemmas) {
+    let level = l.cefr_level;
+    if (!level) level = lookupCEFR(l.lemma, l.pos);
+    if (!level && l.general_freq > 0) level = zipfToCEFR(l.general_freq);
+    if (level && knownPerLevel.has(level)) {
+      knownPerLevel.set(level, knownPerLevel.get(level)! + 1);
     }
   }
 
-  // Human-readable level based on floor
-  let estimatedLevel: string;
-  if (estimatedFloor <= 1) estimatedLevel = 'C2 (Near-native)';
-  else if (estimatedFloor <= 2) estimatedLevel = 'C1 (Advanced)';
-  else if (estimatedFloor <= 3) estimatedLevel = 'B2 (Upper intermediate)';
-  else if (estimatedFloor <= 4) estimatedLevel = 'B1 (Intermediate)';
-  else if (estimatedFloor <= 5) estimatedLevel = 'A2 (Elementary)';
-  else if (estimatedFloor <= 6) estimatedLevel = 'A1 (Beginner)';
-  else estimatedLevel = 'Pre-A1';
+  // Second: count presumed-known CEFR words (not in DB, but common enough)
+  for (const entry of cefrAllEntries!) {
+    if (knownLemmaSet.has(entry.lemma)) continue; // already counted from DB
+    if (entry.general_freq >= freqThreshold) {
+      const level = entry.cefr_level;
+      if (knownPerLevel.has(level)) {
+        knownPerLevel.set(level, knownPerLevel.get(level)! + 1);
+      }
+    }
+  }
 
-  return { bands, estimatedFloor, estimatedLevel };
+  const bands: CEFRBand[] = CEFR_LEVELS.map(level => {
+    const totalInList = cefrTotalsPerLevel!.get(level) || 0;
+    const knownCount = knownPerLevel.get(level) || 0;
+    const coverage = totalInList > 0 ? Math.min(1, knownCount / totalInList) : 0;
+    return { level, knownCount, totalInList, coverage };
+  });
+
+  // Floor = highest CEFR level where coverage >= 80%
+  let floorLevel = 'Pre-A1';
+  for (const band of bands) {
+    if (band.totalInList > 0 && band.coverage >= 0.8) {
+      floorLevel = band.level;
+    }
+  }
+
+  const estimatedLevel = CEFR_LABELS[floorLevel] || 'Pre-A1';
+
+  return { bands, floorLevel, estimatedLevel };
 }
 
 export function getCorpusStats(): {

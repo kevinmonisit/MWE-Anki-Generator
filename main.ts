@@ -3,7 +3,7 @@ import path from 'path';
 import { spawn, execFile, ChildProcess } from 'child_process';
 import fs from 'fs';
 import { registerMWEHandlers } from './mwe-ipc';
-import { getLevelProfile } from './mwe-pipeline';
+import { getLevelProfile, cefrAtOrBelow, lookupCEFR } from './mwe-pipeline';
 
 let mainWindow: BrowserWindow | null = null;
 let activeDownloadProc: ChildProcess | null = null;
@@ -16,6 +16,7 @@ const COST_FILE = path.join(SETTINGS_DIR, 'api-cost.json');
 interface UserSettings {
   selectedDeck: string;
   chunkingDeck: string;
+  userLevel: string; // CEFR level: A1, A2, B1, B2, C1, C2
 }
 
 function loadSettings(): UserSettings {
@@ -24,7 +25,7 @@ function loadSettings(): UserSettings {
     const data = fs.readFileSync(SETTINGS_FILE, 'utf-8');
     return JSON.parse(data);
   } catch {
-    return { selectedDeck: '', chunkingDeck: '' };
+    return { selectedDeck: '', chunkingDeck: '', userLevel: 'B1' };
   }
 }
 
@@ -58,7 +59,7 @@ function saveLemmasToDisk(folder: string, lemmas: TranscriptLemmaData[]): void {
 }
 
 interface TranscriptLemmaData {
-  lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; first_sentence_index: number; is_known: boolean;
+  lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; first_sentence_index: number; sentence_indices: number[]; is_known: boolean; known_source: 'deck' | 'level' | null; cefr_level?: string | null; one_t_count: number;
 }
 
 function loadCardsFromDisk(folder: string): Card[] {
@@ -691,7 +692,12 @@ ipcMain.handle('analyze-transcript-lemmas', async (_event, folder: string) => {
     proc.on('close', (code: number | null) => {
       if (code === 0) {
         try {
-          const allLemmas = JSON.parse(stdout) as { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; first_sentence_index: number }[];
+          const parsed = JSON.parse(stdout) as {
+            lemmas: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; first_sentence_index: number; sentence_indices: number[]; cefr_level?: string | null }[];
+            sentence_map: { lemma: string; pos: string }[][];
+          };
+          const allLemmas = parsed.lemmas;
+          const sentenceMap = parsed.sentence_map;
 
           // Query known lemmas from DB and tag each lemma
           const dbPath = path.join(app.getPath('userData'), 'mwe.db');
@@ -704,19 +710,54 @@ ipcMain.handle('analyze-transcript-lemmas', async (_event, folder: string) => {
             knownSet = new Set(knownRows.map((r: { lemma: string }) => r.lemma.toLowerCase()));
           }
 
-          // Get level floor for presumed-known inference
-          let estimatedFloor = 7;
-          try { estimatedFloor = getLevelProfile().estimatedFloor; } catch { /* DB not ready */ }
+          // Get user's set level for presumed-known inference
+          const settings = loadSettings();
+          const userLevel = settings.userLevel || 'B1';
 
-          const taggedLemmas = allLemmas.map(l => ({
-            ...l,
-            is_known: knownSet.has(l.lemma) || l.general_freq >= estimatedFloor,
-          }));
+          const taggedLemmas = allLemmas.map(l => {
+            const cefrLevel = l.cefr_level ?? lookupCEFR(l.lemma, l.pos, l.general_freq);
+            const inDeck = knownSet.has(l.lemma);
+            const inferredByLevel = cefrAtOrBelow(cefrLevel, userLevel);
+            return {
+              ...l,
+              cefr_level: cefrLevel,
+              is_known: inDeck || inferredByLevel,
+              known_source: inDeck ? 'deck' as const : inferredByLevel ? 'level' as const : null,
+              one_t_count: 0, // computed below
+            };
+          });
+
+          // Build known lemma-key set for 1T computation
+          const knownKeySet = new Set<string>();
+          for (const l of taggedLemmas) {
+            if (l.is_known) knownKeySet.add(`${l.lemma}|${l.pos}`);
+          }
+
+          // Compute 1T count: for each unknown lemma, how many sentences have it as the ONLY unknown
+          const unknownLemmaMap = new Map<string, typeof taggedLemmas[0]>();
+          for (const l of taggedLemmas) {
+            if (!l.is_known) unknownLemmaMap.set(`${l.lemma}|${l.pos}`, l);
+          }
+
+          for (let sentIdx = 0; sentIdx < sentenceMap.length; sentIdx++) {
+            const lemmaKeys = sentenceMap[sentIdx];
+            const unknownsInSentence: string[] = [];
+            for (const lk of lemmaKeys) {
+              const key = `${lk.lemma}|${lk.pos}`;
+              if (!knownKeySet.has(key)) unknownsInSentence.push(key);
+            }
+            // 1T sentence: exactly one unknown content word
+            if (unknownsInSentence.length === 1) {
+              const lemma = unknownLemmaMap.get(unknownsInSentence[0]);
+              if (lemma) lemma.one_t_count++;
+            }
+          }
+
           const knownCount = taggedLemmas.filter(l => l.is_known).length;
           saveLemmasToDisk(folder, taggedLemmas);
-          resolve({ success: true, lemmas: taggedLemmas, totalInTranscript: allLemmas.length, knownCount, unknownCount: allLemmas.length - knownCount, estimatedFloor });
-        } catch {
-          resolve({ success: false, error: 'Failed to parse lemma output' });
+          resolve({ success: true, lemmas: taggedLemmas, totalInTranscript: allLemmas.length, knownCount, unknownCount: allLemmas.length - knownCount, userLevel });
+        } catch (e) {
+          resolve({ success: false, error: 'Failed to parse lemma output: ' + (e as Error).message });
         }
       } else {
         resolve({ success: false, error: stderr || `Script exited with code ${code}` });
@@ -745,16 +786,25 @@ ipcMain.handle('load-transcript-lemmas', async (_event, folder: string) => {
     db.close();
     knownSet = new Set(knownRows.map((r: { lemma: string }) => r.lemma.toLowerCase()));
   }
-  // Get level floor for presumed-known inference
-  let estimatedFloor = 7;
-  try { estimatedFloor = getLevelProfile().estimatedFloor; } catch { /* DB not ready */ }
+
+  // Use user's set level for presumed-known inference
+  const settings = loadSettings();
+  const userLevel = settings.userLevel || 'B1';
 
   for (const l of lemmas) {
-    l.is_known = knownSet.has(l.lemma) || l.general_freq >= estimatedFloor;
+    const cefrLevel = l.cefr_level ?? lookupCEFR(l.lemma, l.pos, l.general_freq);
+    l.cefr_level = cefrLevel;
+    const inDeck = knownSet.has(l.lemma);
+    const inferredByLevel = cefrAtOrBelow(cefrLevel, userLevel);
+    l.is_known = inDeck || inferredByLevel;
+    l.known_source = inDeck ? 'deck' : inferredByLevel ? 'level' : null;
+    // Ensure sentence_indices and one_t_count exist (for older cached data)
+    if (!l.sentence_indices) l.sentence_indices = [l.first_sentence_index];
+    if (l.one_t_count === undefined) l.one_t_count = 0;
   }
 
   const knownCount = lemmas.filter((l: TranscriptLemmaData) => l.is_known).length;
-  return { success: true, lemmas, analyzedAt, totalInTranscript: lemmas.length, knownCount, unknownCount: lemmas.length - knownCount, estimatedFloor };
+  return { success: true, lemmas, analyzedAt, totalInTranscript: lemmas.length, knownCount, unknownCount: lemmas.length - knownCount, userLevel };
 });
 
 // --- subs2srs export to Anki ---

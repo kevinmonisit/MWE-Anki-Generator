@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 export interface UserSettings {
   selectedDeck: string;
   chunkingDeck: string;
+  userLevel: string;
 }
 
 export interface MWEResult {
@@ -106,7 +107,7 @@ contextBridge.exposeInMainWorld('api', {
   explainText: (params: { selectedText: string; fullSentence: string; sentenceBefore: string; sentenceAfter: string }) => ipcRenderer.invoke('openai-explain', params),
   getDownloadPath: (folder: string) => ipcRenderer.invoke('get-download-path', folder),
   loadSettings: () => ipcRenderer.invoke('load-settings'),
-  saveSettings: (settings: { selectedDeck: string; chunkingDeck: string }) => ipcRenderer.invoke('save-settings', settings),
+  saveSettings: (settings: { selectedDeck: string; chunkingDeck: string; userLevel: string }) => ipcRenderer.invoke('save-settings', settings),
   loadCards: (folder: string) => ipcRenderer.invoke('load-cards', folder),
   saveCards: (folder: string, cards: Card[]) => ipcRenderer.invoke('save-cards', folder, cards),
   exportCardsToAnki: (params: {

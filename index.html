@@ -44,7 +44,7 @@
   </div>
 
   <!-- Progress Pipeline -->
-  <div class="progress-bar hidden py-3 px-4 bg-bg-secondary border-b border-border-primary text-[13px] text-gray-400 shrink-0" id="progress">
+  <div class="progress-bar py-3 px-4 bg-bg-secondary border-b border-border-primary text-[13px] text-gray-400 shrink-0" id="progress">
     <div class="flex gap-1 items-center" id="pipeline">
       <div class="pipeline-step flex items-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium bg-bg-primary text-gray-600 transition-all duration-300 whitespace-nowrap" data-step="1"><span class="step-icon"></span>Fetching info</div>
       <span class="pipeline-arrow text-gray-700 text-sm shrink-0">&rarr;</span>
@@ -216,7 +216,20 @@
         <!-- Stats Dashboard -->
         <div class="flex-1 overflow-y-auto p-5" id="corpusStatsArea">
           <div class="max-w-3xl mx-auto">
-            <h2 class="text-lg font-bold text-accent mb-4">Corpus Dashboard</h2>
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-lg font-bold text-accent">Corpus Dashboard</h2>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-500">My Level:</span>
+                <select id="userLevelSelect" class="bg-bg-primary border border-border-primary rounded-md px-2 py-1 text-sm text-white outline-none focus:border-accent transition-colors cursor-pointer">
+                  <option value="A1">A1</option>
+                  <option value="A2">A2</option>
+                  <option value="B1" selected>B1</option>
+                  <option value="B2">B2</option>
+                  <option value="C1">C1</option>
+                  <option value="C2">C2</option>
+                </select>
+              </div>
+            </div>
 
             <!-- Lemma Lookup -->
             <div class="bg-bg-secondary rounded-lg p-4 border border-border-primary mb-5">
@@ -258,7 +271,7 @@
                 <div class="text-xs text-gray-500 uppercase tracking-wider">Estimated Level</div>
                 <div class="text-lg font-bold text-white" id="statEstimatedLevel">-</div>
               </div>
-              <div class="text-[10px] text-gray-600 mb-2">Coverage by frequency band (80%+ = presumed known at that level)</div>
+              <div class="text-[10px] text-gray-600 mb-2">Coverage by CEFR level (80%+ = presumed known at that level)</div>
               <div id="statFrequencyBands" class="space-y-1.5"></div>
             </div>
 

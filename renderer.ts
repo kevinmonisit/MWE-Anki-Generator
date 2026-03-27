@@ -556,6 +556,10 @@ const ankiChunkingDeckSelect = document.getElementById('ankiChunkingDeckSelect')
     const settings = await window.api.loadSettings();
     selectedAnkiDeck = settings.selectedDeck || '';
     selectedChunkingDeck = settings.chunkingDeck || '';
+    if (settings.userLevel) {
+      const levelEl = document.getElementById('userLevelSelect') as HTMLSelectElement | null;
+      if (levelEl) levelEl.value = settings.userLevel;
+    }
   } catch { /* ignore */ }
 })();
 
@@ -633,7 +637,7 @@ function renderAnkiDecks(): void {
 }
 
 function persistDeckSettings(): void {
-  window.api.saveSettings({ selectedDeck: selectedAnkiDeck, chunkingDeck: selectedChunkingDeck });
+  window.api.saveSettings({ selectedDeck: selectedAnkiDeck, chunkingDeck: selectedChunkingDeck, userLevel: userLevelSelect.value });
 }
 
 ankiDeckSelect.addEventListener('change', () => {
@@ -1002,6 +1006,7 @@ let mweView: 'categories' | 'list' | 'lemmas' = 'categories';
 const mweTabLemmas = document.getElementById('mweTabLemmas') as HTMLButtonElement;
 let cachedTranscriptLemmas: TranscriptLemma[] | null = null;
 let lemmaFilter: 'all' | 'unknown' | 'known' = 'unknown';
+let lemmaCefrFilter: string = 'all'; // 'all', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'none'
 let isLemmaAnalyzing = false;
 let lastMWEResults: MWEResult[] = [];
 let selectedMWEs = new Set<string>();
@@ -1402,6 +1407,11 @@ mweTabLemmas.addEventListener('click', async () => {
   mweView = 'lemmas';
   setMWETabActive('lemmas');
 
+  // Default CEFR filter to user's set level on first open
+  if (lemmaCefrFilter === 'all') {
+    lemmaCefrFilter = userLevelSelect.value || 'B1';
+  }
+
   if (cachedTranscriptLemmas) {
     renderTranscriptLemmas(cachedTranscriptLemmas);
     return;
@@ -1419,18 +1429,38 @@ function renderTranscriptLemmas(allLemmas: TranscriptLemma[]): void {
   const knownCount = allLemmas.filter(l => l.is_known).length;
   const unknownCount = allLemmas.length - knownCount;
 
-  // Apply filter
+  // Apply known/unknown filter
   let filtered = lemmaFilter === 'all' ? [...allLemmas]
     : lemmaFilter === 'known' ? allLemmas.filter(l => l.is_known)
     : allLemmas.filter(l => !l.is_known);
 
-  // Sort by learning priority: highest general frequency first (most useful to learn)
-  // For "all" view, unknown words float to top, then sorted by frequency
+  // Apply CEFR filter
+  if (lemmaCefrFilter !== 'all') {
+    if (lemmaCefrFilter === 'none') {
+      filtered = filtered.filter(l => !l.cefr_level);
+    } else {
+      filtered = filtered.filter(l => l.cefr_level === lemmaCefrFilter);
+    }
+  }
+
+  // CEFR ordering and proximity scoring
+  const cefrOrder = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+  const cefrOrd = (l: TranscriptLemma) => {
+    return l.cefr_level ? cefrOrder.indexOf(l.cefr_level) : cefrOrder.length;
+  };
   if (lemmaFilter === 'unknown') {
-    filtered.sort((a, b) => b.general_freq - a.general_freq);
+    filtered.sort((a, b) => {
+      const oneTDiff = (b.one_t_count || 0) - (a.one_t_count || 0);
+      if (oneTDiff !== 0) return oneTDiff;
+      const freqDiff = b.transcript_count - a.transcript_count;
+      if (freqDiff !== 0) return freqDiff;
+      return b.general_freq - a.general_freq;
+    });
   } else if (lemmaFilter === 'all') {
     filtered.sort((a, b) => {
       if (a.is_known !== b.is_known) return a.is_known ? 1 : -1;
+      const cefrDiff = cefrOrd(a) - cefrOrd(b);
+      if (cefrDiff !== 0) return cefrDiff;
       return b.general_freq - a.general_freq;
     });
   }
@@ -1453,9 +1483,27 @@ function renderTranscriptLemmas(allLemmas: TranscriptLemma[]): void {
     ? 'px-2 py-0.5 rounded text-[10px] font-medium bg-white/10 text-white'
     : 'px-2 py-0.5 rounded text-[10px] font-medium text-gray-500 hover:text-gray-300 hover:bg-white/5';
 
+  const cefrFilterBtnClass = (f: string) => f === lemmaCefrFilter
+    ? 'px-1.5 py-0.5 rounded text-[9px] font-semibold bg-accent/20 text-accent border border-accent/30'
+    : 'px-1.5 py-0.5 rounded text-[9px] font-medium text-gray-600 hover:text-gray-400 hover:bg-white/5 border border-transparent';
+
+  // Count per CEFR level for the current filter view
+  const baseLemmas = lemmaFilter === 'known' ? allLemmas.filter(l => l.is_known)
+    : lemmaFilter === 'unknown' ? allLemmas.filter(l => !l.is_known)
+    : allLemmas;
+  const cefrCounts: Record<string, number> = { A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0, none: 0 };
+  for (const l of baseLemmas) {
+    if (l.cefr_level && cefrCounts[l.cefr_level] !== undefined) cefrCounts[l.cefr_level]++;
+    else cefrCounts.none++;
+  }
+
   let html = '';
 
-  // Filter bar
+  // Count known lemmas by source
+  const knownByLevel = allLemmas.filter(l => l.is_known && l.known_source === 'level');
+  const knownByDeck = allLemmas.filter(l => l.is_known && l.known_source === 'deck');
+
+  // Known/Unknown filter bar
   html += `<div class="px-3 py-1.5 flex items-center gap-1 border-b border-border-primary bg-bg-primary/30">
     <button class="${filterBtnClass('unknown')}" data-lemma-filter="unknown">Unknown <span class="text-gray-500">${unknownCount}</span></button>
     <button class="${filterBtnClass('known')}" data-lemma-filter="known">Known <span class="text-gray-500">${knownCount}</span></button>
@@ -1466,22 +1514,55 @@ function renderTranscriptLemmas(allLemmas: TranscriptLemma[]): void {
     </span>
   </div>`;
 
+  // Comprehension percentage
+  const comprehensionPct = allLemmas.length > 0 ? Math.round(knownCount / allLemmas.length * 100) : 0;
+  const compColor = comprehensionPct >= 95 ? 'text-green-400'
+    : comprehensionPct >= 90 ? 'text-yellow-400'
+    : comprehensionPct >= 80 ? 'text-orange-400'
+    : 'text-red-400';
+  const compBgColor = comprehensionPct >= 95 ? 'bg-green-500'
+    : comprehensionPct >= 90 ? 'bg-yellow-500'
+    : comprehensionPct >= 80 ? 'bg-orange-500'
+    : 'bg-red-500';
+  const compLabel = comprehensionPct >= 95 ? 'Fluent comprehension'
+    : comprehensionPct >= 90 ? 'Sweet spot — learn a few more words'
+    : comprehensionPct >= 80 ? 'Challenging but possible'
+    : 'Too many unknowns for comfortable reading';
+
+  html += `<div class="px-3 py-2 border-b border-border-primary bg-bg-primary/20">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[11px] ${compColor} font-semibold">${comprehensionPct}% comprehension</span>
+      <span class="text-[10px] text-gray-500">${compLabel}</span>
+    </div>
+    <div class="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+      <div class="h-full ${compBgColor} rounded-full transition-all" style="width: ${comprehensionPct}%"></div>
+    </div>
+    <div class="flex items-center justify-between mt-1">
+      <span class="text-[9px] text-gray-600">${knownCount} known / ${allLemmas.length} lemmas</span>
+      <span class="text-[9px] text-gray-600 italic" title="Based on content word lemmas (nouns, verbs, adjectives, adverbs), not multi-word expressions">Based on lemmas, not MWEs</span>
+    </div>
+  </div>`;
+
+  // CEFR level filter bar
+  html += `<div class="px-3 py-1 flex items-center gap-1 border-b border-border-primary bg-bg-primary/20 flex-wrap">
+    <button class="${cefrFilterBtnClass('all')}" data-cefr-filter="all">All</button>
+    ${['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].map(level =>
+      `<button class="${cefrFilterBtnClass(level)}" data-cefr-filter="${level}">${level} <span class="text-gray-600">${cefrCounts[level]}</span></button>`
+    ).join('')}
+    <button class="${cefrFilterBtnClass('none')}" data-cefr-filter="none">? <span class="text-gray-600">${cefrCounts.none}</span></button>
+  </div>`;
+
   // Legend
   html += `<div class="px-3 py-1 flex items-center justify-end gap-3 text-[10px] text-gray-600 border-b border-border-primary">
+    <span class="flex items-center gap-1"><span class="font-mono text-amber-500/70">1T</span> = unlocks a sentence</span>
     <span class="flex items-center gap-1"><span class="font-mono text-gray-500">3x</span> = in transcript</span>
-    <span class="flex items-center gap-1">
-      <span class="flex gap-px">
-        <span class="inline-block w-2 h-1.5 rounded-sm bg-green-500"></span>
-        <span class="inline-block w-2 h-1.5 rounded-sm bg-yellow-500"></span>
-        <span class="inline-block w-2 h-1.5 rounded-sm bg-red-500"></span>
-      </span>
-      = frequency
-    </span>
   </div>`;
 
   if (filtered.length === 0) {
     const msg = lemmaFilter === 'known'
       ? 'No known lemmas found in this transcript.'
+      : lemmaCefrFilter !== 'all'
+      ? `No ${lemmaCefrFilter === 'none' ? 'uncategorized' : lemmaCefrFilter} lemmas to show.`
       : 'You know all the content words in this transcript!';
     html += `<div class="py-6 px-3 text-gray-500 text-[12px] text-center">${msg}</div>`;
     mweList.innerHTML = html;
@@ -1489,30 +1570,122 @@ function renderTranscriptLemmas(allLemmas: TranscriptLemma[]): void {
     return;
   }
 
-  // Lemma list
-  html += '<div class="divide-y divide-border-primary">';
-  for (const lemma of filtered) {
+  // CEFR pill color mapping
+  const cefrColors: Record<string, string> = {
+    A1: 'bg-green-600/30 text-green-400',
+    A2: 'bg-green-600/20 text-green-500',
+    B1: 'bg-yellow-600/20 text-yellow-400',
+    B2: 'bg-yellow-600/15 text-yellow-500',
+    C1: 'bg-red-600/20 text-red-400',
+    C2: 'bg-red-600/15 text-red-500',
+  };
+
+  // Helper to render a single lemma row
+  // inGroupedView: true when inside Known view with section headers (skip redundant CEFR pill & checkmark)
+  const renderLemmaRow = (lemma: TranscriptLemma, dimmed: boolean, inGroupedView = false) => {
     const posColor = posColors[lemma.pos] || 'text-gray-400';
     const posLabel = posLabels[lemma.pos] || lemma.pos.toLowerCase();
-    const freqPercent = Math.min(100, (lemma.general_freq / 7) * 100);
-    const knownDim = lemma.is_known ? ' opacity-50' : '';
+    const knownDim = dimmed ? ' opacity-50' : '';
+    const cefrPill = (!inGroupedView && lemma.cefr_level)
+      ? `<span class="text-[9px] px-1 py-px rounded ${cefrColors[lemma.cefr_level] || 'bg-gray-700 text-gray-400'} shrink-0">${lemma.cefr_level}</span>`
+      : '';
+    const checkmark = (!inGroupedView && lemma.is_known)
+      ? '<span class="text-[9px] text-green-600 shrink-0">✓</span>'
+      : '';
+    const oneTBadge = (lemma.one_t_count || 0) > 0
+      ? `<span class="text-[9px] font-mono text-amber-500/70 shrink-0" title="Learning this word unlocks ${lemma.one_t_count} fully-comprehensible sentence${lemma.one_t_count > 1 ? 's' : ''}">1T×${lemma.one_t_count}</span>`
+      : '';
 
-    html += `<div class="px-3 py-1.5 hover:bg-bg-primary/50 transition-colors cursor-pointer lemma-entry${knownDim}" data-sentence-index="${lemma.first_sentence_index}">
+    return `<div class="px-3 py-1.5 hover:bg-bg-primary/50 transition-colors cursor-pointer lemma-entry${knownDim}" data-sentence-index="${lemma.first_sentence_index}">
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-1.5 min-w-0">
-          <span class="text-[13px] ${lemma.is_known ? 'text-gray-500' : 'text-gray-200'} font-medium truncate">${lemma.lemma}</span>
+          <span class="text-[13px] ${dimmed ? 'text-gray-500' : 'text-gray-200'} font-medium truncate">${lemma.lemma}</span>
           <span class="${posColor} text-[10px] font-mono shrink-0">${posLabel}</span>
-          ${lemma.is_known ? '<span class="text-[9px] text-green-600 shrink-0">✓</span>' : ''}
+          ${cefrPill}
+          ${checkmark}
         </div>
         <div class="flex items-center gap-2 shrink-0">
+          ${oneTBadge}
           <span class="text-[10px] text-gray-600" title="Times in transcript">${lemma.transcript_count}x</span>
-          <div class="w-12 h-1 bg-bg-primary rounded-full overflow-hidden" title="General Spanish frequency: ${lemma.general_freq}/7">
-            <div class="h-full rounded-full ${lemma.general_freq >= 5 ? 'bg-green-500' : lemma.general_freq >= 3 ? 'bg-yellow-500' : 'bg-red-500'}" style="width: ${freqPercent}%"></div>
-          </div>
         </div>
       </div>
     </div>`;
+  };
+
+  // Lemma list
+  html += '<div class="divide-y divide-border-primary">';
+
+  if (lemmaFilter === 'known') {
+    // Group known words by source: level-inferred grouped by CEFR, then deck/vocab
+    const cefrLevelOrder = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+    const levelGroups: Record<string, TranscriptLemma[]> = {};
+    const deckGroup: TranscriptLemma[] = [];
+    const uncategorizedGroup: TranscriptLemma[] = [];
+
+    for (const lemma of filtered) {
+      if (lemma.known_source === 'deck') {
+        deckGroup.push(lemma);
+      } else if (lemma.cefr_level && cefrLevelOrder.includes(lemma.cefr_level)) {
+        if (!levelGroups[lemma.cefr_level]) levelGroups[lemma.cefr_level] = [];
+        levelGroups[lemma.cefr_level].push(lemma);
+      } else {
+        uncategorizedGroup.push(lemma);
+      }
+    }
+
+    // Render level-inferred groups
+    for (const level of cefrLevelOrder) {
+      const group = levelGroups[level];
+      if (!group || group.length === 0) continue;
+      const levelColor = cefrColors[level] || 'bg-gray-700 text-gray-400';
+      html += `<div class="px-3 py-1.5 bg-bg-primary/80 border-b border-border-primary sticky top-0 z-10">
+        <div class="flex items-center gap-2">
+          <span class="text-[9px] px-1.5 py-0.5 rounded ${levelColor} font-semibold">${level}</span>
+          <span class="text-[11px] text-gray-400">Presumed known at your level</span>
+          <span class="text-[10px] text-gray-600 ml-auto">${group.length}</span>
+        </div>
+      </div>`;
+      group.sort((a, b) => b.general_freq - a.general_freq);
+      for (const lemma of group) {
+        html += renderLemmaRow(lemma, false, true);
+      }
+    }
+
+    // Render deck/vocab group
+    if (deckGroup.length > 0) {
+      html += `<div class="px-3 py-1.5 bg-bg-primary/80 border-b border-border-primary sticky top-0 z-10">
+        <div class="flex items-center gap-2">
+          <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400 font-semibold">Vocab</span>
+          <span class="text-[11px] text-gray-400">From your imported decks</span>
+          <span class="text-[10px] text-gray-600 ml-auto">${deckGroup.length}</span>
+        </div>
+      </div>`;
+      deckGroup.sort((a, b) => b.general_freq - a.general_freq);
+      for (const lemma of deckGroup) {
+        html += renderLemmaRow(lemma, false, true);
+      }
+    }
+
+    // Render uncategorized known
+    if (uncategorizedGroup.length > 0) {
+      html += `<div class="px-3 py-1.5 bg-bg-primary/80 border-b border-border-primary sticky top-0 z-10">
+        <div class="flex items-center gap-2">
+          <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-400 font-semibold">?</span>
+          <span class="text-[11px] text-gray-400">Other known words</span>
+          <span class="text-[10px] text-gray-600 ml-auto">${uncategorizedGroup.length}</span>
+        </div>
+      </div>`;
+      for (const lemma of uncategorizedGroup) {
+        html += renderLemmaRow(lemma, false, true);
+      }
+    }
+  } else {
+    // Default flat list for Unknown and All views
+    for (const lemma of filtered) {
+      html += renderLemmaRow(lemma, lemma.is_known);
+    }
   }
+
   html += '</div>';
 
   mweList.innerHTML = html;
@@ -1536,6 +1709,14 @@ function attachLemmaFilterListeners(): void {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       lemmaFilter = (btn as HTMLElement).dataset.lemmaFilter as 'all' | 'unknown' | 'known';
+      if (cachedTranscriptLemmas) renderTranscriptLemmas(cachedTranscriptLemmas);
+    });
+  });
+
+  mweList.querySelectorAll('[data-cefr-filter]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      lemmaCefrFilter = (btn as HTMLElement).dataset.cefrFilter || 'all';
       if (cachedTranscriptLemmas) renderTranscriptLemmas(cachedTranscriptLemmas);
     });
   });
@@ -1745,6 +1926,7 @@ const statImports = document.getElementById('statImports') as HTMLDivElement;
 const statEstimatedLevel = document.getElementById('statEstimatedLevel') as HTMLDivElement;
 const statFrequencyBands = document.getElementById('statFrequencyBands') as HTMLDivElement;
 const corpusResetBtn = document.getElementById('corpusResetBtn') as HTMLButtonElement;
+const userLevelSelect = document.getElementById('userLevelSelect') as HTMLSelectElement;
 const lemmaSearchInput = document.getElementById('lemmaSearchInput') as HTMLInputElement;
 const lemmaSearchBtn = document.getElementById('lemmaSearchBtn') as HTMLButtonElement;
 const lemmaSearchResult = document.getElementById('lemmaSearchResult') as HTMLDivElement;
@@ -1764,14 +1946,14 @@ function switchPage(page: 'main' | 'corpus'): void {
   currentPage = page;
   if (page === 'main') {
     mainPage.classList.remove('hidden');
-    progressEl.classList.remove('hidden');
+    // progressEl visibility controlled by 'visible' class during downloads
     corpusPage.classList.add('hidden');
     corpusNavBtn.textContent = 'Corpus';
     corpusNavBtn.classList.remove('bg-accent', 'text-white', 'border-accent');
     corpusNavBtn.classList.add('bg-bg-primary', 'text-gray-400', 'border-border-primary');
   } else {
     mainPage.classList.add('hidden');
-    progressEl.classList.add('hidden');
+    progressEl.classList.remove('visible');
     corpusPage.classList.remove('hidden');
     corpusPage.classList.add('flex');
     corpusNavBtn.textContent = '← Back';
@@ -2161,22 +2343,24 @@ async function refreshCorpusStats(): Promise<void> {
     renderBarChart(statLemmasByPos, stats.lemmasByPos.map(p => ({ label: p.pos, count: p.count })));
     renderBarChart(statMWEsByCategory, stats.mwesByCategory.map(c => ({ label: c.category, count: c.count })));
 
-    // Level profile
+    // Level profile (CEFR bands)
     const lp = stats.levelProfile;
+    const cefrOrder = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
     statEstimatedLevel.textContent = lp.estimatedLevel;
     statFrequencyBands.innerHTML = '';
     for (const band of lp.bands) {
+      if (band.totalInList === 0) continue; // skip empty levels (e.g., C2)
       const pct = Math.round(band.coverage * 100);
-      const isAboveFloor = band.minZipf >= lp.estimatedFloor;
+      const isAtOrBelowFloor = cefrOrder.indexOf(band.level) <= cefrOrder.indexOf(lp.floorLevel);
       const barColor = pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-500/70';
       const row = document.createElement('div');
       row.className = 'flex items-center gap-2';
       row.innerHTML = `
-        <span class="text-[11px] ${isAboveFloor ? 'text-gray-300' : 'text-gray-500'} w-28 text-right shrink-0 font-mono">${escapeHtml(band.label)}</span>
+        <span class="text-[12px] ${isAtOrBelowFloor ? 'text-gray-200 font-semibold' : 'text-gray-500'} w-10 text-right shrink-0">${escapeHtml(band.level)}</span>
         <div class="flex-1 h-4 bg-bg-primary rounded overflow-hidden">
           <div class="h-full ${barColor} rounded transition-all" style="width: ${pct}%"></div>
         </div>
-        <span class="text-[11px] text-gray-500 w-20 shrink-0">${band.knownCount}/${band.totalEstimate} <span class="text-gray-600">${pct}%</span></span>
+        <span class="text-[11px] text-gray-500 w-24 shrink-0">${band.knownCount}/${band.totalInList} <span class="text-gray-600">${pct}%</span></span>
       `;
       statFrequencyBands.appendChild(row);
     }
@@ -2205,6 +2389,14 @@ async function refreshCorpusStats(): Promise<void> {
     // Stats not available yet
   }
 }
+
+// User level change
+userLevelSelect.addEventListener('change', () => {
+  persistDeckSettings();
+  // Invalidate cached transcript lemmas so they re-tag with new level
+  cachedTranscriptLemmas = null;
+  cachedLemmaAnalyzedAt = null;
+});
 
 // Reset lemma database
 corpusResetBtn.addEventListener('click', async () => {
