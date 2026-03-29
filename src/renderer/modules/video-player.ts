@@ -24,6 +24,18 @@ const welcomeEl = document.getElementById('welcome') as HTMLDivElement;
 const contentEl = document.getElementById('content') as HTMLDivElement;
 const progressEl = document.getElementById('progress') as HTMLDivElement;
 
+// Search DOM elements
+const searchBar = document.getElementById('transcriptSearchBar') as HTMLDivElement;
+const searchInput = document.getElementById('transcriptSearchInput') as HTMLInputElement;
+const searchCount = document.getElementById('transcriptSearchCount') as HTMLSpanElement;
+const searchPrevBtn = document.getElementById('transcriptSearchPrev') as HTMLButtonElement;
+const searchNextBtn = document.getElementById('transcriptSearchNext') as HTMLButtonElement;
+const searchCloseBtn = document.getElementById('transcriptSearchClose') as HTMLButtonElement;
+
+// Search state
+let searchMatches: { entryIndex: number; node: HTMLElement }[] = [];
+let currentMatchIndex = -1;
+
 /**
  * Select a video: updates state, refreshes sidebar, loads video + MWEs,
  * and restores any previously saved transcript lemma analysis.
@@ -65,6 +77,7 @@ export async function loadVideo(videoPath: string, srtPath: string): Promise<voi
   videoPlayer.load();
 
   try {
+    closeSearch();
     const srtText = await window.api.readFile(srtPath);
     setSubtitles(parseSRT(srtText));
     setCurrentActiveIndex(-1);
@@ -179,6 +192,157 @@ export function syncTranscript(): void {
     }
   }
 }
+
+// ── Transcript Search ────────────────────────────────────────────────
+
+function openSearch(): void {
+  searchBar.classList.remove('hidden');
+  searchBar.classList.add('flex');
+  searchInput.focus();
+  searchInput.select();
+}
+
+function closeSearch(): void {
+  searchBar.classList.add('hidden');
+  searchBar.classList.remove('flex');
+  searchInput.value = '';
+  clearSearchHighlights();
+  searchMatches = [];
+  currentMatchIndex = -1;
+  searchCount.textContent = '';
+}
+
+function clearSearchHighlights(): void {
+  transcriptList.querySelectorAll('.transcript-text').forEach((span) => {
+    const el = span as HTMLElement;
+    // Restore original text (strip <mark> tags)
+    if (el.querySelector('mark')) {
+      el.textContent = el.textContent || '';
+    }
+  });
+  transcriptList.querySelectorAll('.search-current-entry').forEach((el) => {
+    el.classList.remove('search-current-entry');
+  });
+}
+
+function performSearch(): void {
+  const query = searchInput.value.trim().toLowerCase();
+  clearSearchHighlights();
+  searchMatches = [];
+  currentMatchIndex = -1;
+
+  if (!query) {
+    searchCount.textContent = '';
+    return;
+  }
+
+  const entries = transcriptList.querySelectorAll('.transcript-entry');
+  entries.forEach((entry, entryIndex) => {
+    const textSpan = entry.querySelector('.transcript-text') as HTMLElement;
+    if (!textSpan) return;
+
+    const originalText = textSpan.textContent || '';
+    const lowerText = originalText.toLowerCase();
+
+    if (!lowerText.includes(query)) return;
+
+    // Highlight all occurrences in this span
+    let html = '';
+    let pos = 0;
+    let idx = lowerText.indexOf(query, pos);
+    while (idx !== -1) {
+      html += escapeHtml(originalText.slice(pos, idx));
+      html += `<mark class="bg-yellow-500/40 text-white rounded-sm">${escapeHtml(originalText.slice(idx, idx + query.length))}</mark>`;
+      searchMatches.push({ entryIndex, node: entry as HTMLElement });
+      pos = idx + query.length;
+      idx = lowerText.indexOf(query, pos);
+    }
+    html += escapeHtml(originalText.slice(pos));
+    textSpan.innerHTML = html;
+  });
+
+  if (searchMatches.length > 0) {
+    currentMatchIndex = 0;
+    highlightCurrentMatch();
+  }
+  updateSearchCount();
+}
+
+function updateSearchCount(): void {
+  if (searchMatches.length === 0 && searchInput.value.trim()) {
+    searchCount.textContent = 'No results';
+  } else if (searchMatches.length > 0) {
+    searchCount.textContent = `${currentMatchIndex + 1}/${searchMatches.length}`;
+  } else {
+    searchCount.textContent = '';
+  }
+}
+
+function highlightCurrentMatch(): void {
+  // Remove previous current-entry highlight
+  transcriptList.querySelectorAll('.search-current-entry').forEach((el) => {
+    el.classList.remove('search-current-entry');
+  });
+
+  if (currentMatchIndex < 0 || currentMatchIndex >= searchMatches.length) return;
+
+  const match = searchMatches[currentMatchIndex];
+  match.node.classList.add('search-current-entry');
+  match.node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // Highlight the specific <mark> within this entry more prominently
+  const marks = transcriptList.querySelectorAll('mark');
+  marks.forEach((m) => {
+    m.className = 'bg-yellow-500/40 text-white rounded-sm';
+  });
+
+  // Find the mark corresponding to currentMatchIndex
+  if (marks[currentMatchIndex]) {
+    marks[currentMatchIndex].className = 'bg-yellow-400 text-black rounded-sm';
+  }
+}
+
+function goToNextMatch(): void {
+  if (searchMatches.length === 0) return;
+  currentMatchIndex = (currentMatchIndex + 1) % searchMatches.length;
+  highlightCurrentMatch();
+  updateSearchCount();
+}
+
+function goToPrevMatch(): void {
+  if (searchMatches.length === 0) return;
+  currentMatchIndex = (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+  highlightCurrentMatch();
+  updateSearchCount();
+}
+
+// Wire up search UI events
+searchInput.addEventListener('input', performSearch);
+searchNextBtn.addEventListener('click', goToNextMatch);
+searchPrevBtn.addEventListener('click', goToPrevMatch);
+searchCloseBtn.addEventListener('click', closeSearch);
+
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeSearch();
+  } else if (e.key === 'Enter' && e.shiftKey) {
+    e.preventDefault();
+    goToPrevMatch();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    goToNextMatch();
+  }
+});
+
+// Global Ctrl+F / Cmd+F shortcut
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+    // Only intercept when content area is visible (a video is loaded)
+    if (!contentEl.classList.contains('visible')) return;
+    e.preventDefault();
+    openSearch();
+  }
+});
 
 /**
  * Initialise the video player module.
