@@ -8,8 +8,18 @@
 </head>
 <body class="font-sans bg-bg-primary text-gray-300 h-screen flex flex-col overflow-hidden">
 
-  <!-- URL Input Bar -->
-  <div class="flex gap-2.5 py-3 px-4 bg-bg-secondary border-b border-border-primary items-center shrink-0">
+  <!-- Navigation Bar -->
+  <div class="flex gap-1 py-2 px-4 bg-bg-secondary border-b border-border-primary items-center shrink-0">
+    <button id="navMainBtn"
+      class="py-1.5 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors bg-accent text-white">Download</button>
+    <button id="corpusNavBtn"
+      class="py-1.5 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors bg-transparent text-gray-400 hover:text-accent">Corpus</button>
+    <button id="speechAnalysisNavBtn"
+      class="py-1.5 px-4 rounded-md text-sm font-semibold cursor-pointer transition-colors bg-transparent text-gray-400 hover:text-accent">Speech Analysis</button>
+  </div>
+
+  <!-- URL Input Bar (main page only) -->
+  <div id="urlInputBar" class="flex gap-2.5 py-3 px-4 bg-bg-secondary border-b border-border-primary items-center shrink-0">
     <input type="text" id="urlInput" placeholder="Paste a YouTube URL here..."
       class="flex-1 py-2.5 px-3.5 border border-border-primary rounded-lg bg-bg-primary text-gray-300 text-sm outline-none transition-colors focus:border-accent" />
     <select id="transcriptionMethod"
@@ -19,12 +29,10 @@
     </select>
     <button id="downloadBtn" onclick="startDownload()"
       class="py-2.5 px-6 border-none rounded-lg bg-accent text-white text-sm font-semibold cursor-pointer transition-colors whitespace-nowrap hover:bg-accent-hover disabled:bg-gray-600 disabled:cursor-not-allowed">Download</button>
-    <button id="corpusNavBtn"
-      class="py-2.5 px-4 border border-border-primary rounded-lg bg-bg-primary text-gray-400 text-sm font-semibold cursor-pointer transition-colors whitespace-nowrap hover:bg-bg-secondary hover:text-accent hover:border-accent">Corpus</button>
   </div>
 
   <!-- Anki Status Bar -->
-  <div class="flex gap-2.5 py-1.5 px-4 bg-bg-secondary border-b border-border-primary items-center shrink-0 text-xs flex-wrap">
+  <div id="ankiStatusBar" class="flex gap-2.5 py-1.5 px-4 bg-bg-secondary border-b border-border-primary items-center shrink-0 text-xs flex-wrap">
     <div class="flex items-center gap-1.5 text-gray-500">
       <span class="anki-dot w-2 h-2 rounded-full bg-gray-600 transition-colors duration-300" id="ankiDot"></span>
       <span class="text-gray-400" id="ankiStatusText">Checking Anki...</span>
@@ -313,6 +321,92 @@
           </div>
         </div>
 
+      </div>
+    </div>
+  </div>
+
+  <!-- Speech Analysis Page (hidden by default) -->
+  <div id="speechAnalysisPage" class="hidden flex-1 flex flex-col overflow-hidden">
+    <!-- Top controls -->
+    <div class="shrink-0 p-4 bg-bg-secondary border-b border-border-primary space-y-3">
+      <div class="flex items-center gap-3">
+        <input type="text" id="saPlaylistUrl" placeholder="Paste a YouTube playlist or video URL..."
+          class="flex-1 py-2.5 px-3.5 border border-border-primary rounded-lg bg-bg-primary text-gray-300 text-sm outline-none transition-colors focus:border-accent" />
+        <select id="saCookiesBrowser"
+          class="py-2.5 px-3 border border-border-primary rounded-lg bg-bg-primary text-gray-300 text-sm outline-none transition-colors focus:border-accent cursor-pointer">
+          <option value="">No auth (public)</option>
+          <option value="chrome">Chrome cookies</option>
+          <option value="firefox">Firefox cookies</option>
+          <option value="safari">Safari cookies</option>
+          <option value="file">cookies.txt file...</option>
+        </select>
+        <span id="saCookiesFileRow" class="hidden items-center gap-2">
+          <span class="text-xs text-gray-500 whitespace-nowrap">cookies.txt:</span>
+          <button id="saCookiesFileBtn"
+            class="py-1.5 px-3 border border-border-primary rounded-md bg-bg-primary text-gray-300 text-xs cursor-pointer hover:border-accent hover:text-accent transition-colors whitespace-nowrap">
+            Choose file
+          </button>
+          <span id="saCookiesFileName" class="text-xs text-gray-500 truncate max-w-[140px]">No file chosen</span>
+        </span>
+        <button id="saTranscribeBtn"
+          class="py-2.5 px-6 border-none rounded-lg bg-accent text-white text-sm font-semibold cursor-pointer transition-colors whitespace-nowrap hover:bg-accent-hover disabled:bg-gray-600 disabled:cursor-not-allowed">
+          Transcribe Playlist
+        </button>
+        <button id="saCancelBtn"
+          class="hidden py-2.5 px-4 border border-red-600 rounded-lg bg-transparent text-red-400 text-sm font-semibold cursor-pointer transition-colors hover:bg-red-600/20">
+          Cancel
+        </button>
+      </div>
+      <!-- Progress -->
+      <div id="saProgress" class="hidden flex items-center gap-2 text-sm text-gray-400">
+        <span class="spinner"></span>
+        <span id="saProgressText">Starting...</span>
+      </div>
+      <!-- Mode toggle -->
+      <div class="flex gap-1">
+        <button id="saTabCorrection"
+          class="py-1.5 px-4 text-sm font-semibold rounded-lg transition-colors bg-accent text-white cursor-pointer">
+          Correction Analysis
+        </button>
+        <button id="saTabParent"
+          class="py-1.5 px-4 text-sm font-semibold rounded-lg transition-colors bg-bg-primary text-gray-400 border border-border-primary cursor-pointer hover:text-accent hover:border-accent">
+          Parent Analysis
+        </button>
+      </div>
+    </div>
+
+    <!-- Content: transcript left, analysis right -->
+    <div class="flex-1 flex overflow-hidden min-h-0">
+      <!-- Left: Transcript -->
+      <div class="flex-1 flex flex-col min-w-0 border-r border-border-primary">
+        <div class="py-2.5 px-4 bg-bg-secondary font-semibold text-sm text-accent border-b border-border-primary shrink-0 flex items-center justify-between">
+          <span>Transcript</span>
+          <span id="saTranscriptInfo" class="text-xs font-normal text-gray-500"></span>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4" id="saTranscriptContent">
+          <div class="text-gray-600 text-sm text-center py-10">
+            Enter a playlist or video URL above and click "Transcribe Playlist" to get started.
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Analysis output -->
+      <div class="flex-1 flex flex-col overflow-hidden">
+        <div class="py-2.5 px-4 bg-bg-secondary font-semibold text-sm text-accent border-b border-border-primary shrink-0 flex items-center justify-between">
+          <span id="saOutputTitle">Correction Analysis</span>
+          <button id="saRunAnalysisBtn"
+            class="py-1 px-3 border-none rounded-md bg-accent text-white text-[11px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover disabled:bg-gray-700 disabled:cursor-not-allowed" disabled>
+            Run Analysis
+          </button>
+        </div>
+        <div id="saAnalysisProgress" class="hidden py-2 px-4 text-xs text-gray-400 border-b border-border-primary shrink-0">
+          <div class="flex items-center gap-1.5"><span class="spinner"></span> <span id="saAnalysisProgressText">Analyzing...</span></div>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4" id="saAnalysisContent">
+          <div class="text-gray-600 text-sm text-center py-10">
+            Transcribe a playlist first, then click "Run Analysis" to generate output.
+          </div>
+        </div>
       </div>
     </div>
   </div>

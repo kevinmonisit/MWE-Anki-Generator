@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   ElectronAPI, UserSettings, Card, MWEProgress, CorpusProgress, MWEResult, ExportParams, LemmaAnalysisProgress,
+  SpeechAnalysisProgress, SpeechAnalysisStore,
 } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
@@ -59,4 +60,15 @@ contextBridge.exposeInMainWorld('api', {
   onLemmaAnalysisProgress: (callback: (progress: LemmaAnalysisProgress) => void) => {
     ipcRenderer.on('lemma-analysis-progress', (_event, progress: LemmaAnalysisProgress) => callback(progress));
   },
+
+  // Speech Analysis
+  speechAnalysisTranscribe: (params: { playlistUrl: string; cookiesBrowser?: string; cookiesFile?: string }) => ipcRenderer.invoke('speech-analysis-transcribe', params),
+  pickCookiesFile: () => ipcRenderer.invoke('pick-cookies-file'),
+  cancelSpeechAnalysis: () => ipcRenderer.invoke('cancel-speech-analysis'),
+  onSpeechAnalysisProgress: (callback: (progress: SpeechAnalysisProgress) => void) => {
+    ipcRenderer.on('speech-analysis-progress', (_event, progress: SpeechAnalysisProgress) => callback(progress));
+  },
+  speechAnalysisRunPrompt: (params: { transcript: string; mode: 'correction' | 'parent' }) => ipcRenderer.invoke('speech-analysis-run-prompt', params),
+  loadSpeechAnalysis: () => ipcRenderer.invoke('load-speech-analysis'),
+  saveSpeechAnalysis: (store: SpeechAnalysisStore) => ipcRenderer.invoke('save-speech-analysis', store),
 } satisfies ElectronAPI);

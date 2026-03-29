@@ -86,7 +86,7 @@ export function setCurrentSelectedText(t: string) { currentSelectedText = t; }
 export function setCurrentSelectionContext(ctx: { sentenceBefore: string; sentenceAfter: string }) { currentSelectionContext = ctx; }
 
 // --- Corpus state ---
-export let currentPage: 'main' | 'corpus' = 'main';
+export let currentPage: 'main' | 'corpus' | 'speech-analysis' = 'main';
 export let selectedCorpusDecks = new Set<string>();
 export let corpusSentences: string[] = [];
 export let corpusLemmas: { lemma: string; pos: string }[] = [];
@@ -97,7 +97,7 @@ export let corpusLemmaCount = 0;
 export let corpusNewSentenceCount = 0;
 export let corpusSkippedCount = 0;
 
-export function setCurrentPage(page: 'main' | 'corpus') { currentPage = page; }
+export function setCurrentPage(page: 'main' | 'corpus' | 'speech-analysis') { currentPage = page; }
 export function setCorpusSentences(s: string[]) { corpusSentences = s; }
 export function setCorpusLemmas(l: { lemma: string; pos: string }[]) { corpusLemmas = l; }
 export function setPendingMWEs(m: MWEResult[]) { pendingMWEs = m; }

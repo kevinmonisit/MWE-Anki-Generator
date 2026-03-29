@@ -252,6 +252,15 @@ export interface ElectronAPI {
   loadTranscriptLemmas: (folder: string) => Promise<TranscriptLemmaResult>;
   cancelLemmaAnalysis: () => Promise<void>;
   onLemmaAnalysisProgress: (callback: (progress: LemmaAnalysisProgress) => void) => void;
+
+  // Speech Analysis
+  speechAnalysisTranscribe: (params: { playlistUrl: string; cookiesBrowser?: string; cookiesFile?: string }) => Promise<{ success: boolean; transcript?: string; error?: string }>;
+  pickCookiesFile: () => Promise<string | null>;
+  cancelSpeechAnalysis: () => Promise<void>;
+  onSpeechAnalysisProgress: (callback: (progress: SpeechAnalysisProgress) => void) => void;
+  speechAnalysisRunPrompt: (params: { transcript: string; mode: 'correction' | 'parent' }) => Promise<{ success: boolean; output?: string; error?: string }>;
+  loadSpeechAnalysis: () => Promise<SpeechAnalysisStore>;
+  saveSpeechAnalysis: (store: SpeechAnalysisStore) => Promise<{ success: boolean }>;
 }
 
 export interface LemmaAnalysisProgress {
@@ -259,4 +268,26 @@ export interface LemmaAnalysisProgress {
   totalBatches: number;
   processedSentences: number;
   totalSentences: number;
+}
+
+// --- Speech Analysis types ---
+
+export interface SpeechAnalysisProgress {
+  stage: 'fetching' | 'downloading' | 'transcribing' | 'done' | 'error';
+  currentVideo?: number;
+  totalVideos?: number;
+  videoTitle?: string;
+  message: string;
+}
+
+export interface SpeechAnalysisResult {
+  transcript: string;
+  analysisOutput: string;
+  generatedAt: string;
+  playlistUrl: string;
+}
+
+export interface SpeechAnalysisStore {
+  correction?: SpeechAnalysisResult;
+  parent?: SpeechAnalysisResult;
 }

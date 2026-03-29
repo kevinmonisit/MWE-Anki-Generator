@@ -10,7 +10,9 @@ import { initCards } from './modules/cards';
 import { initDownload } from './modules/download';
 import { initAnkiUI } from './modules/anki-ui';
 import { initMWEPanel } from './modules/mwe-panel';
+import { initNavigation } from './modules/navigation';
 import { initCorpusPage } from './modules/corpus-page';
+import { initSpeechAnalysis } from './modules/speech-analysis';
 
 // Initialize all modules — order matters where there are dependencies
 initLayout();
@@ -19,4 +21,6 @@ initCards();
 initDownload();
 initAnkiUI();
 initMWEPanel();
+initNavigation();
 initCorpusPage();
+initSpeechAnalysis();

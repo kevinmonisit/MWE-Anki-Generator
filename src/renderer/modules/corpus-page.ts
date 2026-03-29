@@ -1,9 +1,9 @@
 import type { MWEResult, CorpusProgress } from '../../shared/types';
 import { escapeHtml } from '../utils';
 import { persistDeckSettings } from './anki-ui';
+import { registerOnNavigate } from './navigation';
 import {
   ankiConnected,
-  currentPage, setCurrentPage,
   selectedCorpusDecks,
   corpusSentences, setCorpusSentences,
   corpusLemmas, setCorpusLemmas,
@@ -17,34 +17,7 @@ import {
   setCachedLemmaAnalyzedAt,
 } from '../state';
 
-function switchPage(page: 'main' | 'corpus'): void {
-  const corpusNavBtn = document.getElementById('corpusNavBtn') as HTMLButtonElement;
-  const mainPage = document.getElementById('mainPage') as HTMLDivElement;
-  const corpusPage = document.getElementById('corpusPage') as HTMLDivElement;
-  const progressEl = document.getElementById('progress') as HTMLDivElement;
-
-  setCurrentPage(page);
-  if (page === 'main') {
-    mainPage.classList.remove('hidden');
-    // progressEl visibility controlled by 'visible' class during downloads
-    corpusPage.classList.add('hidden');
-    corpusNavBtn.textContent = 'Corpus';
-    corpusNavBtn.classList.remove('bg-accent', 'text-white', 'border-accent');
-    corpusNavBtn.classList.add('bg-bg-primary', 'text-gray-400', 'border-border-primary');
-  } else {
-    mainPage.classList.add('hidden');
-    progressEl.classList.remove('visible');
-    corpusPage.classList.remove('hidden');
-    corpusPage.classList.add('flex');
-    corpusNavBtn.textContent = '\u2190 Back';
-    corpusNavBtn.classList.add('bg-accent', 'text-white', 'border-accent');
-    corpusNavBtn.classList.remove('bg-bg-primary', 'text-gray-400', 'border-border-primary');
-    loadCorpusDecks();
-    refreshCorpusStats();
-  }
-}
-
-async function loadCorpusDecks(): Promise<void> {
+export async function loadCorpusDecks(): Promise<void> {
   const corpusDeckList = document.getElementById('corpusDeckList') as HTMLDivElement;
   const corpusFetchBtn = document.getElementById('corpusFetchBtn') as HTMLButtonElement;
 
@@ -281,7 +254,7 @@ function renderBarChart(container: HTMLDivElement, items: { label: string; count
   }
 }
 
-async function refreshCorpusStats(): Promise<void> {
+export async function refreshCorpusStats(): Promise<void> {
   const statTotalLemmas = document.getElementById('statTotalLemmas') as HTMLDivElement;
   const statTotalMWEs = document.getElementById('statTotalMWEs') as HTMLDivElement;
   const statKnownMWEs = document.getElementById('statKnownMWEs') as HTMLDivElement;
@@ -379,7 +352,6 @@ async function searchLemma(): Promise<void> {
 }
 
 export function initCorpusPage(): void {
-  const corpusNavBtn = document.getElementById('corpusNavBtn') as HTMLButtonElement;
   const corpusFetchBtn = document.getElementById('corpusFetchBtn') as HTMLButtonElement;
   const corpusBuildLemmasBtn = document.getElementById('corpusBuildLemmasBtn') as HTMLButtonElement;
   const corpusBuildMWEsBtn = document.getElementById('corpusBuildMWEsBtn') as HTMLButtonElement;
@@ -399,9 +371,10 @@ export function initCorpusPage(): void {
   const lemmaSearchInput = document.getElementById('lemmaSearchInput') as HTMLInputElement;
   const lemmaSearchBtn = document.getElementById('lemmaSearchBtn') as HTMLButtonElement;
 
-  // --- corpusNavBtn click ---
-  corpusNavBtn.addEventListener('click', () => {
-    switchPage(currentPage === 'main' ? 'corpus' : 'main');
+  // Navigation is handled by navigation.ts — register our on-navigate callback
+  registerOnNavigate('corpus', () => {
+    loadCorpusDecks();
+    refreshCorpusStats();
   });
 
   // --- corpusFetchBtn click ---

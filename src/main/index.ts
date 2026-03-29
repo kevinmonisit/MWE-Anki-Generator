@@ -7,6 +7,7 @@ import { registerExplainHandlers } from './ipc/explain';
 import { registerAnkiHandlers } from './ipc/anki';
 import { registerLemmaHandlers } from './ipc/lemma-analysis';
 import { registerMWEHandlers } from './mwe/mwe-ipc';
+import { registerSpeechAnalysisHandlers } from './ipc/speech-analysis';
 
 let mainWindow: BrowserWindow | null = null;
 const getMainWindow = () => mainWindow;
@@ -43,6 +44,7 @@ app.whenReady().then(() => {
   registerAnkiHandlers(getApiKey, trackCost);
   registerLemmaHandlers(getMainWindow, getApiKey, trackCost);
   registerMWEHandlers(getMainWindow, getApiKey, trackCost);
+  registerSpeechAnalysisHandlers(getMainWindow, getApiKey, trackCost);
 });
 
 app.on('window-all-closed', () => {
