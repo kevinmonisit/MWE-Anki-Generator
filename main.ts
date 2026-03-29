@@ -114,6 +114,7 @@ const OPENAI_API_KEY = loadOpenAIKey();
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'gpt-5.4':      { input: 2.50, output: 10.00 },
   'gpt-5.4-mini': { input: 0.15, output: 0.60 },
+  'gpt-5.4-nano': { input: 0.03, output: 0.12 },
   'gpt-5.1':      { input: 2.00, output: 8.00 },
 };
 
@@ -200,8 +201,8 @@ interface VideoEntry {
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 850,
+    width: 1600,
+    height: 1000,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -768,6 +769,198 @@ ipcMain.handle('analyze-transcript-lemmas', async (_event, folder: string) => {
       resolve({ success: false, error: err.message });
     });
   });
+});
+
+// --- GPT-based lemma analysis ---
+
+function parseSrtToSentences(srtContent: string): string[] {
+  const lines: string[] = [];
+  for (const block of srtContent.split(/\n\n+/)) {
+    const parts = block.trim().split('\n');
+    if (parts.length >= 3) {
+      const text = parts.slice(2).join(' ').replace(/<[^>]+>/g, '').trim();
+      if (text) lines.push(text);
+    }
+  }
+  return lines;
+}
+
+const GPT_LEMMA_MODEL = 'gpt-5.4-nano';
+
+async function gptExtractLemmas(sentences: string[]): Promise<{ lemmas: { lemma: string; pos: string }[]; sentenceIndex: number }[]> {
+  // Batch sentences to reduce API calls (10 sentences per call)
+  const BATCH_SIZE = 10;
+  const results: { lemmas: { lemma: string; pos: string }[]; sentenceIndex: number }[] = [];
+
+  for (let i = 0; i < sentences.length; i += BATCH_SIZE) {
+    const batch = sentences.slice(i, i + BATCH_SIZE);
+    const numberedSentences = batch.map((s, idx) => `${i + idx}: ${s}`).join('\n');
+
+    const prompt = `Extract all content word lemmas (nouns, verbs, adjectives, adverbs) from each numbered Spanish sentence below. Return JSON only — an array of objects with "index" (sentence number), "lemma" (dictionary form, lowercase), and "pos" (one of NOUN, VERB, ADJ, ADV). Exclude function words (articles, prepositions, pronouns, conjunctions, determiners). For verbs, always return the infinitive form. For nouns/adjectives, return the masculine singular form.
+
+${numberedSentences}`;
+
+    try {
+      const response = await net.fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: GPT_LEMMA_MODEL,
+          messages: [
+            { role: 'system', content: 'You are a Spanish linguistics expert. Return only valid JSON arrays, no markdown fences.' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0,
+        }),
+      });
+
+      const json = await response.json() as { choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens: number; completion_tokens: number }; error?: { message: string } };
+      if (json.usage) {
+        trackApiCost(GPT_LEMMA_MODEL, json.usage.prompt_tokens, json.usage.completion_tokens, 'lemma-analysis');
+      }
+      if (json.error) continue;
+
+      const content = json.choices?.[0]?.message?.content?.trim() || '[]';
+      // Strip markdown fences if present
+      const cleaned = content.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+      const parsed = JSON.parse(cleaned) as { index: number; lemma: string; pos: string }[];
+
+      for (const entry of parsed) {
+        const sentIdx = entry.index;
+        if (sentIdx >= 0 && sentIdx < sentences.length) {
+          let existing = results.find(r => r.sentenceIndex === sentIdx);
+          if (!existing) {
+            existing = { sentenceIndex: sentIdx, lemmas: [] };
+            results.push(existing);
+          }
+          existing.lemmas.push({ lemma: entry.lemma.toLowerCase(), pos: entry.pos });
+        }
+      }
+    } catch {
+      // Skip failed batches
+    }
+  }
+  return results;
+}
+
+ipcMain.handle('analyze-transcript-lemmas-gpt', async (_event, folder: string) => {
+  if (!OPENAI_API_KEY) {
+    return { success: false, error: 'OpenAI API key not found in .env.local' };
+  }
+
+  const downloadsDir = path.join(app.getPath('userData'), 'downloads');
+  const srtPath = path.join(downloadsDir, folder, 'video.srt');
+  if (!fs.existsSync(srtPath)) {
+    return { success: false, error: 'No SRT file found for this video' };
+  }
+
+  try {
+    const srtContent = fs.readFileSync(srtPath, 'utf-8');
+    const sentences = parseSrtToSentences(srtContent);
+    if (sentences.length === 0) {
+      return { success: false, error: 'No sentences found in SRT' };
+    }
+
+    const gptResults = await gptExtractLemmas(sentences);
+
+    // Aggregate lemma data (same structure as the SpaCy pipeline)
+    const lemma_pos_data: Record<string, { count: number; first_sentence_index: number; sentence_indices: number[] }> = {};
+    const sentence_lemma_keys: Set<string>[] = sentences.map(() => new Set<string>());
+
+    for (const { sentenceIndex, lemmas } of gptResults) {
+      for (const { lemma, pos } of lemmas) {
+        if (!['NOUN', 'VERB', 'ADJ', 'ADV'].includes(pos)) continue;
+        const key = `${lemma}|${pos}`;
+        if (!lemma_pos_data[key]) {
+          lemma_pos_data[key] = { count: 0, first_sentence_index: sentenceIndex, sentence_indices: [] };
+        }
+        lemma_pos_data[key].count++;
+        if (!lemma_pos_data[key].sentence_indices.includes(sentenceIndex)) {
+          lemma_pos_data[key].sentence_indices.push(sentenceIndex);
+        }
+        sentence_lemma_keys[sentenceIndex].add(key);
+      }
+    }
+
+    // Build allLemmas array
+    const allLemmas = Object.entries(lemma_pos_data).map(([key, info]) => {
+      const [lemma, pos] = key.split('|');
+      const cefrLevel = lookupCEFR(lemma, pos, 0);
+      return {
+        lemma,
+        pos,
+        transcript_count: info.count,
+        general_freq: 0,
+        score: info.count,
+        first_sentence_index: info.first_sentence_index,
+        sentence_indices: info.sentence_indices,
+        cefr_level: cefrLevel,
+      };
+    });
+
+    // Sort by CEFR then count
+    const CEFR_ORDER = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+    allLemmas.sort((a, b) => {
+      const aOrd = a.cefr_level && CEFR_ORDER.includes(a.cefr_level) ? CEFR_ORDER.indexOf(a.cefr_level) : CEFR_ORDER.length;
+      const bOrd = b.cefr_level && CEFR_ORDER.includes(b.cefr_level) ? CEFR_ORDER.indexOf(b.cefr_level) : CEFR_ORDER.length;
+      if (aOrd !== bOrd) return aOrd - bOrd;
+      return b.score - a.score;
+    });
+
+    // Tag known/unknown (same logic as SpaCy path)
+    const dbPath = path.join(app.getPath('userData'), 'mwe.db');
+    let knownSet = new Set<string>();
+    if (fs.existsSync(dbPath)) {
+      const Database = require('better-sqlite3');
+      const db = new Database(dbPath, { readonly: true });
+      const knownRows = db.prepare('SELECT lemma FROM known_lemmas').all() as { lemma: string }[];
+      db.close();
+      knownSet = new Set(knownRows.map((r: { lemma: string }) => r.lemma.toLowerCase()));
+    }
+
+    const settings = loadSettings();
+    const userLevel = settings.userLevel || 'B1';
+
+    const taggedLemmas = allLemmas.map(l => {
+      const inDeck = knownSet.has(l.lemma);
+      const inferredByLevel = cefrAtOrBelow(l.cefr_level, userLevel);
+      return {
+        ...l,
+        is_known: inDeck || inferredByLevel,
+        known_source: inDeck ? 'deck' as const : inferredByLevel ? 'level' as const : null,
+        one_t_count: 0,
+      };
+    });
+
+    // 1T computation
+    const knownKeySet = new Set<string>();
+    for (const l of taggedLemmas) {
+      if (l.is_known) knownKeySet.add(`${l.lemma}|${l.pos}`);
+    }
+    const unknownLemmaMap = new Map<string, typeof taggedLemmas[0]>();
+    for (const l of taggedLemmas) {
+      if (!l.is_known) unknownLemmaMap.set(`${l.lemma}|${l.pos}`, l);
+    }
+    for (let sentIdx = 0; sentIdx < sentence_lemma_keys.length; sentIdx++) {
+      const unknownsInSentence: string[] = [];
+      for (const key of sentence_lemma_keys[sentIdx]) {
+        if (!knownKeySet.has(key)) unknownsInSentence.push(key);
+      }
+      if (unknownsInSentence.length === 1) {
+        const lemma = unknownLemmaMap.get(unknownsInSentence[0]);
+        if (lemma) lemma.one_t_count++;
+      }
+    }
+
+    const knownCount = taggedLemmas.filter(l => l.is_known).length;
+    saveLemmasToDisk(folder, taggedLemmas);
+    return { success: true, lemmas: taggedLemmas, totalInTranscript: allLemmas.length, knownCount, unknownCount: allLemmas.length - knownCount, userLevel };
+  } catch (e) {
+    return { success: false, error: 'GPT lemma analysis failed: ' + (e as Error).message };
+  }
 });
 
 // IPC: Load saved transcript lemmas for a folder (without re-analyzing)

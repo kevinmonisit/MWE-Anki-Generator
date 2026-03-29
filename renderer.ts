@@ -1379,14 +1379,17 @@ mweTabList.addEventListener('click', () => {
   if (lastMWEResults.length > 0) renderMWEFlatList(lastMWEResults);
 });
 
-async function runLemmaAnalysis(): Promise<void> {
+async function runLemmaAnalysis(method: 'spacy' | 'gpt' = 'spacy'): Promise<void> {
   if (!currentFolder) return;
   if (isLemmaAnalyzing) return;
   isLemmaAnalyzing = true;
-  mweList.innerHTML = '<div class="py-6 px-3 text-gray-400 text-[12px] text-center flex items-center justify-center gap-2"><span class="spinner"></span> Analyzing transcript lemmas...</div>';
+  const label = method === 'gpt' ? 'GPT' : 'SpaCy';
+  mweList.innerHTML = `<div class="py-6 px-3 text-gray-400 text-[12px] text-center flex items-center justify-center gap-2"><span class="spinner"></span> Analyzing transcript lemmas (${label})...</div>`;
 
   try {
-    const result = await window.api.analyzeTranscriptLemmas(currentFolder);
+    const result = method === 'gpt'
+      ? await window.api.analyzeTranscriptLemmasGpt(currentFolder)
+      : await window.api.analyzeTranscriptLemmas(currentFolder);
     if (result.success && result.lemmas) {
       cachedTranscriptLemmas = result.lemmas;
       cachedLemmaAnalyzedAt = result.analyzedAt || new Date().toISOString();
@@ -1510,7 +1513,13 @@ function renderTranscriptLemmas(allLemmas: TranscriptLemma[]): void {
     <button class="${filterBtnClass('all')}" data-lemma-filter="all">All <span class="text-gray-500">${allLemmas.length}</span></button>
     <span class="ml-auto flex items-center gap-2">
       ${cachedLemmaAnalyzedAt ? `<span class="italic text-[10px] text-gray-600" title="Analyzed on ${new Date(cachedLemmaAnalyzedAt).toLocaleString()}">${new Date(cachedLemmaAnalyzedAt).toLocaleDateString()}</span>` : ''}
-      <button id="lemmaReanalyzeBtn" class="text-[10px] text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-white/5 transition-colors">re-analyze</button>
+      <span class="relative">
+        <button id="lemmaReanalyzeBtn" class="text-[10px] text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-white/5 transition-colors">re-analyze ▾</button>
+        <div id="lemmaReanalyzeDropdown" class="hidden absolute right-0 top-full mt-0.5 bg-bg-secondary border border-border-primary rounded shadow-lg z-50 min-w-[140px]">
+          <button data-analyze-method="spacy" class="block w-full text-left text-[10px] text-gray-400 hover:text-gray-200 hover:bg-white/5 px-3 py-1.5">SpaCy pipeline</button>
+          <button data-analyze-method="gpt" class="block w-full text-left text-[10px] text-gray-400 hover:text-gray-200 hover:bg-white/5 px-3 py-1.5">GPT 5.4 nano</button>
+        </div>
+      </span>
     </span>
   </div>`;
 
@@ -1722,12 +1731,25 @@ function attachLemmaFilterListeners(): void {
   });
 
   const reanalyzeBtn = document.getElementById('lemmaReanalyzeBtn');
-  if (reanalyzeBtn) {
+  const reanalyzeDropdown = document.getElementById('lemmaReanalyzeDropdown');
+  if (reanalyzeBtn && reanalyzeDropdown) {
     reanalyzeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      cachedTranscriptLemmas = null;
-      cachedLemmaAnalyzedAt = null;
-      runLemmaAnalysis();
+      reanalyzeDropdown.classList.toggle('hidden');
+    });
+    reanalyzeDropdown.querySelectorAll('[data-analyze-method]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        reanalyzeDropdown.classList.add('hidden');
+        const method = (btn as HTMLElement).dataset.analyzeMethod as 'spacy' | 'gpt';
+        cachedTranscriptLemmas = null;
+        cachedLemmaAnalyzedAt = null;
+        runLemmaAnalysis(method);
+      });
+    });
+    // Close dropdown when clicking elsewhere
+    document.addEventListener('click', () => {
+      reanalyzeDropdown.classList.add('hidden');
     });
   }
 }

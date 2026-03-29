@@ -92,6 +92,7 @@ export interface ElectronAPI {
   checkLemmaExists: (lemma: string) => Promise<{ exists: boolean; pos?: string; source_deck?: string }>;
   resetLemmaDatabase: () => Promise<{ success: boolean; deletedLemmas?: number; deletedImports?: number; deletedProcessed?: number; error?: string }>;
   analyzeTranscriptLemmas: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; analyzedAt?: string; error?: string }>;
+  analyzeTranscriptLemmasGpt: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; analyzedAt?: string; error?: string }>;
   loadTranscriptLemmas: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; analyzedAt?: string; error?: string }>;
 }
 
@@ -145,5 +146,6 @@ contextBridge.exposeInMainWorld('api', {
   checkLemmaExists: (lemma: string) => ipcRenderer.invoke('check-lemma-exists', lemma),
   resetLemmaDatabase: () => ipcRenderer.invoke('reset-lemma-database'),
   analyzeTranscriptLemmas: (folder: string) => ipcRenderer.invoke('analyze-transcript-lemmas', folder),
+  analyzeTranscriptLemmasGpt: (folder: string) => ipcRenderer.invoke('analyze-transcript-lemmas-gpt', folder),
   loadTranscriptLemmas: (folder: string) => ipcRenderer.invoke('load-transcript-lemmas', folder),
 } satisfies ElectronAPI);

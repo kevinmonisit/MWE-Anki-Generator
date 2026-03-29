@@ -228,9 +228,12 @@ def extract_lemmas_with_freq(sentences: list[str]) -> list[dict]:
 
             # Fix verb+clitic forms (repítelo, vámonos, dígame, etc.)
             # Apply when lemma == surface form (SpaCy didn't lemmatize) or zipf is 0
+            # BUT skip if the current lemma already has a good zipf frequency,
+            # to avoid false positives like "instante" -> "instar" (the "-te"
+            # ending is NOT a clitic pronoun here).
             if len(token.text) > 3:
                 orig_zipf = zipf_frequency(lemma, "es")
-                if lemma == token.text.lower() or orig_zipf == 0:
+                if orig_zipf == 0 or (lemma == token.text.lower() and orig_zipf < 3.0):
                     lemma, pos = _try_clitic_fix(token.text, lemma, pos)
 
             # Fallback 1: if lemma still has zipf 0, SpaCy produced a bad lemma.

@@ -97,39 +97,40 @@
       </div>
 
       <!-- Content (video + transcript + MWE panel) -->
-      <div class="content-area flex-1 hidden flex-col overflow-hidden" id="content">
-        <div class="shrink-0 h-[55%] bg-black flex items-center justify-center relative min-h-[80px]" id="videoSection">
-          <video id="videoPlayer" controls class="max-w-full max-h-full w-full h-full object-contain"></video>
-        </div>
-        <div class="video-resize-handle shrink-0 h-1.5 bg-border-primary cursor-row-resize transition-colors relative z-10 hover:bg-accent" id="videoResizeHandle"></div>
-        <div class="flex-1 flex min-h-[80px] overflow-hidden">
-          <!-- Transcript -->
-          <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div class="content-area flex-1 hidden flex-row overflow-hidden" id="content">
+        <!-- Left column: video + transcript -->
+        <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <div class="shrink-0 h-[55%] bg-black flex items-center justify-center relative min-h-[80px]" id="videoSection">
+            <video id="videoPlayer" controls class="max-w-full max-h-full w-full h-full object-contain"></video>
+          </div>
+          <div class="video-resize-handle shrink-0 h-1.5 bg-border-primary cursor-row-resize transition-colors relative z-10 hover:bg-accent" id="videoResizeHandle"></div>
+          <div class="flex-1 flex flex-col min-h-[80px] overflow-hidden">
+            <!-- Transcript -->
             <div class="py-2.5 px-4 bg-bg-secondary font-semibold text-sm text-accent border-b border-border-primary shrink-0">Transcript</div>
             <div class="flex-1 overflow-y-auto py-2" id="transcriptList"></div>
           </div>
-          <!-- MWE Panel Resize Handle -->
-          <div class="shrink-0 w-1.5 bg-border-primary cursor-col-resize transition-colors relative z-10 hover:bg-accent" id="mweResizeHandle"></div>
-          <!-- MWE Panel -->
-          <div class="w-[280px] shrink-0 flex flex-col bg-bg-secondary border-l border-border-primary overflow-hidden" id="mwePanel">
-            <div class="py-2.5 px-3 bg-bg-secondary font-semibold text-sm text-accent border-b border-border-primary shrink-0">
-              <div class="flex items-center justify-between">
-                <span>MWEs</span>
-                <button id="extractMWEsBtn" class="py-1 px-2.5 border-none rounded-md bg-accent text-white text-[11px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover disabled:bg-gray-700 disabled:cursor-not-allowed">Extract</button>
-              </div>
-              <div class="text-[9px] text-gray-600 font-normal mt-1">Select MWEs then <kbd class="px-1 py-px rounded bg-bg-primary border border-border-primary text-gray-500 font-mono text-[9px]">⌘D</kbd> to toggle known</div>
+        </div>
+        <!-- MWE Panel Resize Handle -->
+        <div class="shrink-0 w-1.5 bg-border-primary cursor-col-resize transition-colors relative z-10 hover:bg-accent" id="mweResizeHandle"></div>
+        <!-- MWE Panel (full height) -->
+        <div class="w-[380px] shrink-0 flex flex-col bg-bg-secondary border-l border-border-primary overflow-hidden" id="mwePanel">
+          <div class="py-2.5 px-3 bg-bg-secondary font-semibold text-sm text-accent border-b border-border-primary shrink-0">
+            <div class="flex items-center justify-between">
+              <span>MWEs</span>
+              <button id="extractMWEsBtn" class="py-1 px-2.5 border-none rounded-md bg-accent text-white text-[11px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover disabled:bg-gray-700 disabled:cursor-not-allowed">Extract</button>
             </div>
-            <div id="mweProgress" class="hidden py-2 px-3 text-xs text-gray-400 border-b border-border-primary shrink-0">
-              <div class="flex items-center gap-1.5"><span class="spinner"></span> <span id="mweProgressText">Extracting...</span></div>
-            </div>
-            <div class="flex shrink-0 border-b border-border-primary">
-              <button id="mweTabCategories" class="flex-1 py-1.5 text-[11px] font-semibold text-accent border-b-2 border-accent bg-transparent cursor-pointer transition-colors">By Category</button>
-              <button id="mweTabList" class="flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300">All Unique</button>
-              <button id="mweTabLemmas" class="flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300">Lemmas</button>
-            </div>
-            <div class="flex-1 overflow-y-auto py-1" id="mweList">
-              <div class="py-6 px-3 text-gray-600 text-[12px] text-center">Click "Extract" to find multiword expressions in this transcript.</div>
-            </div>
+            <div class="text-[9px] text-gray-600 font-normal mt-1">Select MWEs then <kbd class="px-1 py-px rounded bg-bg-primary border border-border-primary text-gray-500 font-mono text-[9px]">⌘D</kbd> to toggle known</div>
+          </div>
+          <div id="mweProgress" class="hidden py-2 px-3 text-xs text-gray-400 border-b border-border-primary shrink-0">
+            <div class="flex items-center gap-1.5"><span class="spinner"></span> <span id="mweProgressText">Extracting...</span></div>
+          </div>
+          <div class="flex shrink-0 border-b border-border-primary">
+            <button id="mweTabCategories" class="flex-1 py-1.5 text-[11px] font-semibold text-accent border-b-2 border-accent bg-transparent cursor-pointer transition-colors">By Category</button>
+            <button id="mweTabList" class="flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300">All Unique</button>
+            <button id="mweTabLemmas" class="flex-1 py-1.5 text-[11px] font-semibold text-gray-500 border-b-2 border-transparent bg-transparent cursor-pointer transition-colors hover:text-gray-300">Lemmas</button>
+          </div>
+          <div class="flex-1 overflow-y-auto py-1" id="mweList">
+            <div class="py-6 px-3 text-gray-600 text-[12px] text-center">Click "Extract" to find multiword expressions in this transcript.</div>
           </div>
         </div>
       </div>
