@@ -12,6 +12,11 @@
   <div class="flex gap-2.5 py-3 px-4 bg-bg-secondary border-b border-border-primary items-center shrink-0">
     <input type="text" id="urlInput" placeholder="Paste a YouTube URL here..."
       class="flex-1 py-2.5 px-3.5 border border-border-primary rounded-lg bg-bg-primary text-gray-300 text-sm outline-none transition-colors focus:border-accent" />
+    <select id="transcriptionMethod"
+      class="py-2.5 px-3 border border-border-primary rounded-lg bg-bg-primary text-gray-300 text-sm outline-none transition-colors focus:border-accent cursor-pointer">
+      <option value="whisper">Whisper (local)</option>
+      <option value="elevenlabs">ElevenLabs Scribe</option>
+    </select>
     <button id="downloadBtn" onclick="startDownload()"
       class="py-2.5 px-6 border-none rounded-lg bg-accent text-white text-sm font-semibold cursor-pointer transition-colors whitespace-nowrap hover:bg-accent-hover disabled:bg-gray-600 disabled:cursor-not-allowed">Download</button>
     <button id="corpusNavBtn"
@@ -36,10 +41,17 @@
         <option value="">Select deck...</option>
       </select>
     </div>
-    <div class="ml-auto flex items-center gap-1.5 text-gray-500">
-      <span class="text-gray-600 text-[11px]">API Cost:</span>
-      <span class="text-[11px] font-mono text-yellow-500" id="apiCostDisplay">$0.0000</span>
-      <button class="text-gray-600 text-[10px] hover:text-gray-400 cursor-pointer bg-transparent border-none" id="apiCostResetBtn" title="Reset cost counter">&#x21bb;</button>
+    <div class="ml-auto flex items-center gap-3 text-gray-500">
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-600 text-[11px]">API Cost:</span>
+        <span class="text-[11px] font-mono text-yellow-500" id="apiCostDisplay">$0.0000</span>
+        <button class="text-gray-600 text-[10px] hover:text-gray-400 cursor-pointer bg-transparent border-none" id="apiCostResetBtn" title="Reset cost counter">&#x21bb;</button>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-600 text-[11px]">Scribe:</span>
+        <span class="text-[11px] font-mono text-purple-400" id="elevenLabsCostDisplay">$0.0000</span>
+        <button class="text-gray-600 text-[10px] hover:text-gray-400 cursor-pointer bg-transparent border-none" id="elevenLabsCostResetBtn" title="Reset ElevenLabs cost counter">&#x21bb;</button>
+      </div>
     </div>
   </div>
 
@@ -52,7 +64,7 @@
       <span class="pipeline-arrow text-gray-700 text-sm shrink-0">&rarr;</span>
       <div class="pipeline-step flex items-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium bg-bg-primary text-gray-600 transition-all duration-300 whitespace-nowrap" data-step="3"><span class="step-icon"></span>Extracting MP3</div>
       <span class="pipeline-arrow text-gray-700 text-sm shrink-0">&rarr;</span>
-      <div class="pipeline-step flex items-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium bg-bg-primary text-gray-600 transition-all duration-300 whitespace-nowrap" data-step="4"><span class="step-icon"></span>Whisper transcription</div>
+      <div class="pipeline-step flex items-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium bg-bg-primary text-gray-600 transition-all duration-300 whitespace-nowrap" data-step="4"><span class="step-icon"></span><span id="step4Label">Whisper transcription</span></div>
     </div>
   </div>
 

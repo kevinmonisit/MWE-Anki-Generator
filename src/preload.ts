@@ -4,7 +4,7 @@ import type {
 } from './shared/types';
 
 contextBridge.exposeInMainWorld('api', {
-  downloadVideo: (url: string) => ipcRenderer.invoke('download-video', url),
+  downloadVideo: (url: string, transcriptionMethod?: string) => ipcRenderer.invoke('download-video', url, transcriptionMethod || 'whisper'),
   onDownloadProgress: (callback: (message: string) => void) => {
     ipcRenderer.on('download-progress', (_event, message: string) => callback(message));
   },
@@ -34,6 +34,11 @@ contextBridge.exposeInMainWorld('api', {
   resetApiCost: () => ipcRenderer.invoke('reset-api-cost'),
   onApiCostUpdate: (callback: (data: { totalCost: number }) => void) => {
     ipcRenderer.on('api-cost-update', (_event, data: { totalCost: number }) => callback(data));
+  },
+  getElevenLabsCost: () => ipcRenderer.invoke('get-elevenlabs-cost'),
+  resetElevenLabsCost: () => ipcRenderer.invoke('reset-elevenlabs-cost'),
+  onElevenLabsCostUpdate: (callback: (data: { totalCost: number }) => void) => {
+    ipcRenderer.on('elevenlabs-cost-update', (_event, data: { totalCost: number }) => callback(data));
   },
   fetchAnkiNotes: (deckNames: string[]) => ipcRenderer.invoke('fetch-anki-notes', deckNames),
   extractLemmas: (sentences: string[]) => ipcRenderer.invoke('extract-lemmas', sentences),

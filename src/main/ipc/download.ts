@@ -3,17 +3,18 @@ import path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
 import { DOWNLOADS_DIR } from '../services/storage';
+import { trackElevenLabsCost } from './data';
 import type { DownloadResult, VideoEntry, VideoInfo } from '../../shared/types';
 
 let activeDownloadProc: ChildProcess | null = null;
 let downloadWasCancelled = false;
 
 export function registerDownloadHandlers(getMainWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('download-video', async (_event, url: string): Promise<DownloadResult> => {
+  ipcMain.handle('download-video', async (_event, url: string, transcriptionMethod: string = 'whisper'): Promise<DownloadResult> => {
     return new Promise((resolve) => {
       const scriptPath = path.join(__dirname, '..', '..', '..', '..', 'scripts', 'download.py');
       const venvPython = path.join(__dirname, '..', '..', '..', '..', '.venv', 'bin', 'python3');
-      const proc = spawn(venvPython, [scriptPath, url, DOWNLOADS_DIR], {
+      const proc = spawn(venvPython, [scriptPath, url, DOWNLOADS_DIR, transcriptionMethod], {
         cwd: path.join(__dirname, '..', '..', '..', '..'),
       });
       activeDownloadProc = proc;
@@ -54,6 +55,15 @@ export function registerDownloadHandlers(getMainWindow: () => BrowserWindow | nu
         }
 
         if (code === 0) {
+          // Track ElevenLabs cost if present
+          const elCostMatch = stdout.match(/ELEVENLABS_COST:([\d.]+)/);
+          if (elCostMatch) {
+            const durationSec = parseFloat(elCostMatch[1]);
+            if (durationSec > 0) {
+              trackElevenLabsCost(durationSec, 'scribe-transcription', mainWindow);
+            }
+          }
+
           const folderMatch = stdout.match(/FOLDER:(.+)/);
           const folderName = folderMatch ? folderMatch[1].trim() : null;
           if (folderName) {

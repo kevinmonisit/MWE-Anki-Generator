@@ -690,6 +690,32 @@ apiCostResetBtn.addEventListener('click', async () => {
   updateCostDisplay(0);
 });
 
+// --- ElevenLabs Scribe Cost Display ---
+const elevenLabsCostDisplay = document.getElementById('elevenLabsCostDisplay') as HTMLSpanElement;
+const elevenLabsCostResetBtn = document.getElementById('elevenLabsCostResetBtn') as HTMLButtonElement;
+
+function updateElevenLabsCostDisplay(totalCost: number): void {
+  elevenLabsCostDisplay.textContent = totalCost < 0.01
+    ? `$${totalCost.toFixed(4)}`
+    : `$${totalCost.toFixed(2)}`;
+}
+
+window.api.onElevenLabsCostUpdate((data) => {
+  updateElevenLabsCostDisplay(data.totalCost);
+});
+
+(async () => {
+  try {
+    const { totalCost } = await window.api.getElevenLabsCost();
+    updateElevenLabsCostDisplay(totalCost);
+  } catch { /* ignore */ }
+})();
+
+elevenLabsCostResetBtn.addEventListener('click', async () => {
+  await window.api.resetElevenLabsCost();
+  updateElevenLabsCostDisplay(0);
+});
+
 // --- Video / transcript resize handle ---
 
 const videoSection = document.getElementById('videoSection') as HTMLDivElement;
@@ -2255,7 +2281,7 @@ function showMWEReview(mwes: MWEResult[]): void {
     const info = document.createElement('div');
     info.className = 'flex-1 min-w-0';
 
-    const cats = entry.mwe.categories.map(c =>
+    const cats = entry.mwe.categories.map((c: string) =>
       `<span class="inline-block text-[9px] px-1.5 py-0.5 rounded bg-accent/20 text-accent mr-1">${escapeHtml(c)}</span>`
     ).join('');
 

@@ -2,13 +2,14 @@ import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { net } from 'electron';
-import type { UserSettings, Card, ApiCostEntry, ApiCostStore, TranscriptLemmaData } from '../../shared/types';
+import type { UserSettings, Card, ApiCostEntry, ApiCostStore, ElevenLabsCostEntry, ElevenLabsCostStore, TranscriptLemmaData } from '../../shared/types';
 
 // --- Paths ---
 export const DOWNLOADS_DIR = path.join(app.getPath('userData'), 'downloads');
 export const SETTINGS_DIR = path.join(app.getPath('userData'), 'settings');
 export const SETTINGS_FILE = path.join(SETTINGS_DIR, 'user-settings.json');
 export const COST_FILE = path.join(SETTINGS_DIR, 'api-cost.json');
+export const ELEVENLABS_COST_FILE = path.join(SETTINGS_DIR, 'elevenlabs-cost.json');
 export const CARDS_DIR = path.join(app.getPath('userData'), 'cards');
 export const LEMMAS_DIR = path.join(app.getPath('userData'), 'lemmas');
 
@@ -77,6 +78,22 @@ export function loadApiCost(): ApiCostStore {
 export function saveApiCostToDisk(totalCost: number, entries: ApiCostEntry[]): void {
   fs.mkdirSync(SETTINGS_DIR, { recursive: true });
   fs.writeFileSync(COST_FILE, JSON.stringify({ totalCost, entries }, null, 2));
+}
+
+// --- ElevenLabs Cost ---
+export function loadElevenLabsCost(): ElevenLabsCostStore {
+  try {
+    fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+    const data = fs.readFileSync(ELEVENLABS_COST_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return { totalCost: 0, entries: [] };
+  }
+}
+
+export function saveElevenLabsCostToDisk(totalCost: number, entries: ElevenLabsCostEntry[]): void {
+  fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+  fs.writeFileSync(ELEVENLABS_COST_FILE, JSON.stringify({ totalCost, entries }, null, 2));
 }
 
 // --- AnkiConnect helper ---

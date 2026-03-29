@@ -8,6 +8,8 @@ let isDownloading = false;
 const urlInput = document.getElementById('urlInput') as HTMLInputElement;
 const downloadBtn = document.getElementById('downloadBtn') as HTMLButtonElement;
 const progressEl = document.getElementById('progress') as HTMLDivElement;
+const transcriptionMethodSelect = document.getElementById('transcriptionMethod') as HTMLSelectElement;
+const step4Label = document.getElementById('step4Label') as HTMLSpanElement;
 
 function updatePipeline(currentStep: number): void {
   const steps = document.querySelectorAll('.pipeline-step');
@@ -69,7 +71,10 @@ async function startDownload(): Promise<void> {
   resetPipeline();
   progressEl.classList.add('visible');
 
-  const result = await window.api.downloadVideo(url);
+  const method = transcriptionMethodSelect.value;
+  step4Label.textContent = method === 'elevenlabs' ? 'ElevenLabs Scribe' : 'Whisper transcription';
+
+  const result = await window.api.downloadVideo(url, method);
 
   isDownloading = false;
   downloadBtn.disabled = false;

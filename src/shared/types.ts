@@ -133,6 +133,18 @@ export interface ApiCostStore {
   entries: ApiCostEntry[];
 }
 
+export interface ElevenLabsCostEntry {
+  durationSec: number;
+  costUsd: number;
+  source: string;
+  timestamp: number;
+}
+
+export interface ElevenLabsCostStore {
+  totalCost: number;
+  entries: ElevenLabsCostEntry[];
+}
+
 export interface ExplainParams {
   selectedText: string;
   fullSentence: string;
@@ -197,7 +209,7 @@ export interface DownloadFailure {
 export type DownloadResult = DownloadSuccess | DownloadFailure;
 
 export interface ElectronAPI {
-  downloadVideo: (url: string) => Promise<{ success: boolean; videoPath?: string; srtPath?: string; folder?: string; error?: string }>;
+  downloadVideo: (url: string, transcriptionMethod?: string) => Promise<{ success: boolean; videoPath?: string; srtPath?: string; folder?: string; error?: string }>;
   onDownloadProgress: (callback: (message: string) => void) => void;
   readFile: (filePath: string) => Promise<string>;
   listDownloads: () => Promise<VideoEntry[]>;
@@ -222,6 +234,9 @@ export interface ElectronAPI {
   getApiCost: () => Promise<ApiCostStore>;
   resetApiCost: () => Promise<{ success: boolean }>;
   onApiCostUpdate: (callback: (data: { totalCost: number }) => void) => void;
+  getElevenLabsCost: () => Promise<ElevenLabsCostStore>;
+  resetElevenLabsCost: () => Promise<{ success: boolean }>;
+  onElevenLabsCostUpdate: (callback: (data: { totalCost: number }) => void) => void;
   fetchAnkiNotes: (deckNames: string[]) => Promise<{ success: boolean; sentences?: string[]; totalNotes?: number; migakuLemmas?: { lemma: string; pos: string }[]; error?: string }>;
   extractLemmas: (sentences: string[]) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string }[]; error?: string }>;
   buildAnkiCorpus: (params: { deckName: string; sentences: string[]; lemmas: { lemma: string; pos: string }[]; mode?: 'lemmas' | 'mwes' | 'both' }) => Promise<{ success: boolean; lemmaCount?: number; mwes?: MWEResult[]; sentenceCount?: number; skippedCount?: number; error?: string }>;
