@@ -144,10 +144,10 @@
         <div class="w-[380px] shrink-0 flex flex-col bg-bg-secondary border-l border-border-primary overflow-hidden" id="mwePanel">
           <div class="py-2.5 px-3 bg-bg-secondary font-semibold text-sm text-accent border-b border-border-primary shrink-0">
             <div class="flex items-center justify-between">
-              <span>MWEs</span>
+              <span id="mwePanelHeaderLabel">MWEs</span>
               <button id="extractMWEsBtn" class="py-1 px-2.5 border-none rounded-md bg-accent text-white text-[11px] font-semibold cursor-pointer transition-colors hover:bg-accent-hover disabled:bg-gray-700 disabled:cursor-not-allowed">Extract</button>
             </div>
-            <div class="text-[9px] text-gray-600 font-normal mt-1">Select MWEs then <kbd class="px-1 py-px rounded bg-bg-primary border border-border-primary text-gray-500 font-mono text-[9px]">⌘D</kbd> to toggle known</div>
+            <div id="mweHeaderHint" class="text-[9px] text-gray-600 font-normal mt-1">Select MWEs then <kbd class="px-1 py-px rounded bg-bg-primary border border-border-primary text-gray-500 font-mono text-[9px]">⌘D</kbd> to toggle known</div>
           </div>
           <div id="mweProgress" class="hidden py-2 px-3 text-xs text-gray-400 border-b border-border-primary shrink-0">
             <div class="flex items-center gap-1.5"><span class="spinner"></span> <span id="mweProgressText">Extracting...</span></div>

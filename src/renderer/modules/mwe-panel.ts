@@ -343,6 +343,17 @@ function renderMWEActionBar(): void {
   mwePanel.appendChild(bar);
 }
 
+function updatePanelHeader(label: string) {
+  const headerSpan = document.getElementById('mwePanelHeaderLabel');
+  if (headerSpan) headerSpan.textContent = label;
+
+  const isLemmas = label === 'Lemmas';
+  const extractBtn = document.getElementById('extractMWEsBtn');
+  const hint = document.getElementById('mweHeaderHint');
+  if (extractBtn) extractBtn.style.display = isLemmas ? 'none' : '';
+  if (hint) hint.style.display = isLemmas ? 'none' : '';
+}
+
 function setMWETabActive(active: 'categories' | 'list' | 'lemmas') {
   mweTabCategories.className = active === 'categories' ? TAB_ACTIVE : TAB_INACTIVE;
   mweTabList.className = active === 'list' ? TAB_ACTIVE : TAB_INACTIVE;
@@ -982,18 +993,29 @@ export function initMWEPanel(): void {
     selectedMWEs.clear();
     setLastClickedMWEIndex(-1);
     setMWETabActive('categories');
-    if (lastMWEResults.length > 0) renderMWEByCategory(lastMWEResults);
+    updatePanelHeader('MWEs');
+    if (lastMWEResults.length > 0) {
+      renderMWEByCategory(lastMWEResults);
+    } else {
+      mweList.innerHTML = '<div class="py-6 px-3 text-gray-600 text-[12px] text-center">Click "Extract" to find multiword expressions in this transcript.</div>';
+    }
   });
 
   mweTabList.addEventListener('click', () => {
     setMWEView('list');
     setMWETabActive('list');
-    if (lastMWEResults.length > 0) renderMWEFlatList(lastMWEResults);
+    updatePanelHeader('MWEs');
+    if (lastMWEResults.length > 0) {
+      renderMWEFlatList(lastMWEResults);
+    } else {
+      mweList.innerHTML = '<div class="py-6 px-3 text-gray-600 text-[12px] text-center">Click "Extract" to find multiword expressions in this transcript.</div>';
+    }
   });
 
   mweTabLemmas.addEventListener('click', async () => {
     setMWEView('lemmas');
     setMWETabActive('lemmas');
+    updatePanelHeader('Lemmas');
 
     // Default CEFR filter to user's set level on first open
     if (lemmaCefrFilter === 'all') {
