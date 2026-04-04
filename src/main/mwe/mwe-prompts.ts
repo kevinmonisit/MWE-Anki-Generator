@@ -49,6 +49,7 @@ Given numbered sentences from a Mexican Spanish transcript, extract ALL multiwor
 - Include the sentence_index (which sentence in the batch this came from, 0-based).
 - If a word is part of multiple overlapping MWEs, extract both.
 - Do NOT extract simple verb conjugations, regular noun phrases, or transparent compositions.
+- Do NOT extract "ser/estar + adjective/adverb/pronoun" combinations that are fully compositional (e.g., "es cierto", "es como", "es este", "es bueno", "está bien", "es muy", "es algo"). These are transparent predications, not MWEs. Only extract ser/estar phrases if they form a genuine idiom or fixed expression (e.g., "es que" as a discourse marker, "está cañón" as a mexicanismo).
 - Err on the side of inclusion for Mexican colloquial speech. If it sounds like a "chunk" a native speaker produces as a unit, extract it.
 
 ## Output Format

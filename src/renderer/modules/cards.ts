@@ -12,6 +12,7 @@ import {
   currentExplanation,
   currentSelectedText,
   currentSelectionContext,
+  cachedTranscriptLemmas,
   setSidebarView,
   setCurrentAnchorIndex,
   setCurrentTranslation,
@@ -464,8 +465,27 @@ export function initCards(): void {
     if (result.success && (result.translation || result.explanation)) {
       setCurrentTranslation(result.translation || '');
       setCurrentExplanation(result.explanation || '');
+
+      // Look up CEFR level from cached lemmas
+      const cefrColors: Record<string, string> = {
+        A1: 'bg-green-600/30 text-green-400',
+        A2: 'bg-green-600/20 text-green-500',
+        B1: 'bg-yellow-600/20 text-yellow-400',
+        B2: 'bg-yellow-600/15 text-yellow-500',
+        C1: 'bg-red-600/20 text-red-400',
+        C2: 'bg-red-600/15 text-red-500',
+      };
+      const selectedLower = currentSelectedText.toLowerCase().trim();
+      const matchedLemma = cachedTranscriptLemmas?.find(
+        l => l.lemma.toLowerCase() === selectedLower || selectedLower.includes(l.lemma.toLowerCase())
+      );
+      const cefrLevel = matchedLemma?.cefr_level;
+      const cefrPill = cefrLevel
+        ? `<span class="text-[9px] px-1 py-px rounded ${cefrColors[cefrLevel] || 'bg-gray-700 text-gray-400'} ml-1">${cefrLevel}</span>`
+        : '';
+
       explainPanelResult.innerHTML = `
-        ${currentExplanation ? `<div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Explanation</div><div class="text-xs text-gray-300 leading-relaxed">${escapeHtml(currentExplanation)}</div>` : ''}
+        ${currentExplanation ? `<div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Explanation${cefrPill}</div><div class="text-xs text-gray-300 leading-relaxed">${escapeHtml(currentExplanation)}</div>` : ''}
         ${currentTranslation ? `<div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-1 mb-0.5">Translation</div><div class="text-xs text-accent leading-relaxed">${escapeHtml(currentTranslation)}</div>` : ''}
       `;
       createCardBtn.classList.remove('hidden');

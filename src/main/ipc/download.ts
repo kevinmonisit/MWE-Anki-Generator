@@ -16,6 +16,7 @@ export function registerDownloadHandlers(getMainWindow: () => BrowserWindow | nu
       const venvPython = path.join(__dirname, '..', '..', '..', '..', '.venv', 'bin', 'python3');
       const proc = spawn(venvPython, [scriptPath, url, DOWNLOADS_DIR, transcriptionMethod], {
         cwd: path.join(__dirname, '..', '..', '..', '..'),
+        detached: true,
       });
       activeDownloadProc = proc;
       downloadWasCancelled = false;
@@ -90,9 +91,14 @@ export function registerDownloadHandlers(getMainWindow: () => BrowserWindow | nu
   });
 
   ipcMain.handle('cancel-download', async () => {
-    if (activeDownloadProc && !activeDownloadProc.killed) {
+    if (activeDownloadProc && !activeDownloadProc.killed && activeDownloadProc.pid) {
       downloadWasCancelled = true;
-      activeDownloadProc.kill();
+      // Kill the entire process group (Python + yt-dlp/ffmpeg children)
+      try {
+        process.kill(-activeDownloadProc.pid, 'SIGKILL');
+      } catch {
+        activeDownloadProc.kill('SIGKILL');
+      }
     }
   });
 
