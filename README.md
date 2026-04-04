@@ -2,7 +2,7 @@
 
 A desktop app for learning Spanish from YouTube videos. Download a video, get an automatic transcription, select phrases to get AI explanations, and export flashcards directly to Anki — complete with audio clips and screenshots.
 
-![Preview](preview.png)
+<img width="1312" height="962" alt="preview" src="https://github.com/user-attachments/assets/e4d80ade-e046-40b2-a5cd-15f220b2ed7d" />
 
 ## Features
 
