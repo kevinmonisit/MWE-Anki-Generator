@@ -987,6 +987,7 @@ createCardBtn.addEventListener('click', async () => {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     expression: sub.text,
     meaning: currentExplanation,
+    meaningEs: '',
     translation: currentTranslation,
     targetLineBefore: currentAnchorIndex > 0 ? subtitles[currentAnchorIndex - 1].text : '',
     targetLineAfter: currentAnchorIndex < subtitles.length - 1 ? subtitles[currentAnchorIndex + 1].text : '',

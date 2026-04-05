@@ -53,8 +53,13 @@ const CARD_BACK = `<div class="audio-wrap">{{Audio}}</div>
 <div class="sentence">{{Sentence}}</div>
 <hr id="answer">
 <div class="phrase">"{{Phrase}}"</div>
-<div class="explanation-label">Explanation</div>
-<div class="explanation">{{Explanation}}</div>
+{{#ExplanationEs}}<div class="explanation-label">Explicación</div>
+<div class="explanation">{{ExplanationEs}}</div>{{/ExplanationEs}}
+{{#Explanation}}<div class="trans-section">
+<button class="trans-toggle-btn" onclick="var d=document.getElementById('exen');d.style.display=d.style.display==='none'?'block':'none';this.textContent=d.style.display==='none'?'▶ Show English Explanation':'▼ Hide English Explanation'">▶ Show English Explanation</button>
+<div id="exen" style="display:none"><div class="explanation-label">Explanation</div>
+<div class="explanation">{{Explanation}}</div></div>
+</div>{{/Explanation}}
 {{#ContextBefore}}{{#ContextAfter}}<div class="context-wrap">
 <div class="context-label">Context</div>
 {{#ContextBefore}}<div class="context-line ctx-before">{{ContextBefore}}</div>{{/ContextBefore}}
@@ -83,7 +88,7 @@ async function ensureAnkiModel(): Promise<void> {
   if (!models.includes(ANKI_MODEL_NAME)) {
     await ankiRequest('createModel', {
       modelName: ANKI_MODEL_NAME,
-      inOrderFields: ['SegmentId', 'Phrase', 'Sentence', 'Translation', 'Explanation', 'ContextBefore', 'ContextAfter', 'Audio', 'Image'],
+      inOrderFields: ['SegmentId', 'Phrase', 'Sentence', 'Translation', 'Explanation', 'ExplanationEs', 'ContextBefore', 'ContextAfter', 'Audio', 'Image'],
       css: ANKI_MODEL_CSS,
       cardTemplates: [{ Name: 'Comprehension', Front: CARD_FRONT, Back: CARD_BACK }],
     });
@@ -96,8 +101,9 @@ async function ensureAnkiModel(): Promise<void> {
     const existingFields = (fieldsRes.result as string[]) || [];
     const fieldsToAdd = [
       { name: 'Translation', index: 3 },
-      { name: 'ContextBefore', index: 5 },
-      { name: 'ContextAfter', index: 6 },
+      { name: 'ExplanationEs', index: 5 },
+      { name: 'ContextBefore', index: 6 },
+      { name: 'ContextAfter', index: 7 },
     ];
     for (const f of fieldsToAdd) {
       if (!existingFields.includes(f.name)) {
@@ -197,57 +203,66 @@ export function registerAnkiHandlers(
         await ankiRequest('storeMediaFile', { filename: audioFile, data: audioData });
         await ankiRequest('storeMediaFile', { filename: imgFile, data: imgData });
 
-        const addRes = await ankiRequest('addNote', {
-          note: {
-            deckName,
-            modelName: ANKI_MODEL_NAME,
-            fields: {
-              SegmentId: card.id,
-              Phrase: card.selectedText,
-              Sentence: card.expression,
-              Translation: card.translation || '',
-              Explanation: card.meaning,
-              ContextBefore: card.targetLineBefore || '',
-              ContextAfter: card.targetLineAfter || '',
-              Audio: `[sound:${audioFile}]`,
-              Image: `<img src="${imgFile}">`,
-            },
-            options: { allowDuplicate: false },
-            tags: ['subs2srs', 'spanish', titleTag].filter(Boolean),
-          },
-        });
+        if (card.chunking && chunkingDeckName) {
+          // Chunked cards go only to the chunking deck, not the sentence mining deck
+          try {
+            const apiKey = getApiKey();
+            const hint = card.clozeHint || await getClozeHint(apiKey, card.selectedText, card.expression, card.translation || '', trackCost);
+            const clozeText = card.expression.replace(
+              card.selectedText,
+              `{{c1::${card.selectedText}::${hint}}}`
+            );
 
-        if (addRes.error) {
-          results.push({ cardId: card.id, success: false, error: addRes.error as string });
-        } else {
-          if (card.chunking && chunkingDeckName) {
-            try {
-              const apiKey = getApiKey();
-              const hint = card.clozeHint || await getClozeHint(apiKey, card.selectedText, card.expression, card.translation || '', trackCost);
-              const clozeText = card.expression.replace(
-                card.selectedText,
-                `{{c1::${card.selectedText}::${hint}}}`
-              );
-
-              await ankiRequest('addNote', {
-                note: {
-                  deckName: chunkingDeckName,
-                  modelName: CLOZE_MODEL_NAME,
-                  fields: {
-                    Text: clozeText,
-                    Extra: card.meaning || '',
-                    Audio: `[sound:${audioFile}]`,
-                    Image: `<img src="${imgFile}">`,
-                  },
-                  options: { allowDuplicate: false },
-                  tags: ['chunking', 'spanish', titleTag].filter(Boolean),
+            const clozeRes = await ankiRequest('addNote', {
+              note: {
+                deckName: chunkingDeckName,
+                modelName: CLOZE_MODEL_NAME,
+                fields: {
+                  Text: clozeText,
+                  Extra: card.meaning || '',
+                  Audio: `[sound:${audioFile}]`,
+                  Image: `<img src="${imgFile}">`,
                 },
-              });
-            } catch (clozeErr) {
-              console.error(`Cloze card failed for ${card.id}:`, (clozeErr as Error).message);
+                options: { allowDuplicate: false },
+                tags: ['chunking', 'spanish', titleTag].filter(Boolean),
+              },
+            });
+
+            if (clozeRes.error) {
+              results.push({ cardId: card.id, success: false, error: clozeRes.error as string });
+            } else {
+              results.push({ cardId: card.id, success: true });
             }
+          } catch (clozeErr) {
+            results.push({ cardId: card.id, success: false, error: (clozeErr as Error).message });
           }
-          results.push({ cardId: card.id, success: true });
+        } else {
+          const addRes = await ankiRequest('addNote', {
+            note: {
+              deckName,
+              modelName: ANKI_MODEL_NAME,
+              fields: {
+                SegmentId: card.id,
+                Phrase: card.selectedText,
+                Sentence: card.expression,
+                Translation: card.translation || '',
+                Explanation: card.meaning,
+                ExplanationEs: card.meaningEs || '',
+                ContextBefore: card.targetLineBefore || '',
+                ContextAfter: card.targetLineAfter || '',
+                Audio: `[sound:${audioFile}]`,
+                Image: `<img src="${imgFile}">`,
+              },
+              options: { allowDuplicate: false },
+              tags: ['subs2srs', 'spanish', titleTag].filter(Boolean),
+            },
+          });
+
+          if (addRes.error) {
+            results.push({ cardId: card.id, success: false, error: addRes.error as string });
+          } else {
+            results.push({ cardId: card.id, success: true });
+          }
         }
       } catch (err) {
         results.push({ cardId: card.id, success: false, error: (err as Error).message });

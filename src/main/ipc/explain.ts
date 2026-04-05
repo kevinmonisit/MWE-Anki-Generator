@@ -23,14 +23,15 @@ Before: "${sentenceBefore}"
 Current line: "${fullSentence}"
 After: "${sentenceAfter}"
 
-Respond with a JSON object (no markdown, no code fences) with exactly two fields:
+Respond with a JSON object (no markdown, no code fences) with exactly three fields:
 - "explanation": Respond concisely in no more than 100 words. The specified word(s)/phrases MUST be in their original Spanish. All other explanation text MUST be in English. Use Mexican Spanish. Write an explanation that helps someone understand the word, phrase, or idiom and how it is used in this context, as though you're explaining it to a friend. Use the surrounding context to clarify how the phrase is being used in this specific moment. DO NOT output the word 'nuance'. DO NOT use complicated words. Explain the essence of the word in its context to an intermediate to advanced Spanish learner. DO NOT avoid direct explanations for tricky or slang meanings; explain them as they are. DO NOT overcomplicate with grammar jargon; keep it natural and simple. Conclude with the specific meaning within the context sentence.
+- "explanationEs": The same explanation as above, but written entirely in Spanish (Mexican Spanish). Keep the selected word(s)/phrases in their original form. Use simple, natural Spanish that an intermediate learner can understand. No more than 100 words.
 - "translation": a natural English translation of the ENTIRE current line "${fullSentence}" (not just the selected part — translate the whole sentence).
 
-Example format: {"explanation":"...","translation":"..."}`;
+Example format: {"explanation":"...","explanationEs":"...","translation":"..."}`;
 
     try {
-      const result = await openaiChat(apiKey, [{ role: 'user', content: prompt }], { model: 'gpt-5.4', maxTokens: 300 });
+      const result = await openaiChat(apiKey, [{ role: 'user', content: prompt }], { model: 'gpt-5.4', maxTokens: 500 });
 
       if (result.error) {
         return { success: false, error: result.error };
@@ -43,15 +44,17 @@ Example format: {"explanation":"...","translation":"..."}`;
       const raw = result.content || '{}';
       let translation = '';
       let explanation = '';
+      let explanationEs = '';
       try {
-        const parsed = JSON.parse(raw) as { translation?: string; explanation?: string };
+        const parsed = JSON.parse(raw) as { translation?: string; explanation?: string; explanationEs?: string };
         translation = parsed.translation?.trim() || '';
         explanation = parsed.explanation?.trim() || '';
+        explanationEs = parsed.explanationEs?.trim() || '';
       } catch {
         explanation = raw;
       }
       if (!explanation && !translation) explanation = 'No explanation returned.';
-      return { success: true, translation, explanation };
+      return { success: true, translation, explanation, explanationEs };
     } catch (err) {
       return { success: false, error: (err as Error).message };
     }

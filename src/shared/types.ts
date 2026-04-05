@@ -2,6 +2,7 @@ export interface Card {
   id: string;
   expression: string;
   meaning: string;
+  meaningEs: string;
   translation: string;
   targetLineBefore: string;
   targetLineAfter: string;
@@ -156,6 +157,7 @@ export interface ExportCard {
   id: string;
   expression: string;
   meaning: string;
+  meaningEs: string;
   translation: string;
   selectedText: string;
   targetLineBefore: string;
@@ -215,7 +217,7 @@ export interface ElectronAPI {
   listDownloads: () => Promise<VideoEntry[]>;
   deleteDownload: (folder: string) => Promise<{ success: boolean; error?: string }>;
   ankiInvoke: (action: string, params?: Record<string, unknown>) => Promise<{ result: unknown; error: string | null }>;
-  explainText: (params: ExplainParams) => Promise<{ success: boolean; translation?: string; explanation?: string; error?: string }>;
+  explainText: (params: ExplainParams) => Promise<{ success: boolean; translation?: string; explanation?: string; explanationEs?: string; error?: string }>;
   getDownloadPath: (folder: string) => Promise<string>;
   loadSettings: () => Promise<UserSettings>;
   saveSettings: (settings: UserSettings) => Promise<{ success: boolean }>;

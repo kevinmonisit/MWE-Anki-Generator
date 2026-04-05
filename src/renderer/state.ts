@@ -77,11 +77,13 @@ export function setIsLemmaAnalyzing(val: boolean) { isLemmaAnalyzing = val; }
 // --- Explain state ---
 export let currentTranslation = '';
 export let currentExplanation = '';
+export let currentExplanationEs = '';
 export let currentSelectedText = '';
 export let currentSelectionContext = { sentenceBefore: '', sentenceAfter: '' };
 
 export function setCurrentTranslation(t: string) { currentTranslation = t; }
 export function setCurrentExplanation(e: string) { currentExplanation = e; }
+export function setCurrentExplanationEs(e: string) { currentExplanationEs = e; }
 export function setCurrentSelectedText(t: string) { currentSelectedText = t; }
 export function setCurrentSelectionContext(ctx: { sentenceBefore: string; sentenceAfter: string }) { currentSelectionContext = ctx; }
 

@@ -10,6 +10,7 @@ import {
   currentVideoTitle,
   currentTranslation,
   currentExplanation,
+  currentExplanationEs,
   currentSelectedText,
   currentSelectionContext,
   cachedTranscriptLemmas,
@@ -17,6 +18,7 @@ import {
   setCurrentAnchorIndex,
   setCurrentTranslation,
   setCurrentExplanation,
+  setCurrentExplanationEs,
   setCurrentSelectedText,
   setCurrentSelectionContext,
 } from '../state';
@@ -98,8 +100,12 @@ function openCardModal(card: Card): void {
         <div class="text-[10px] uppercase tracking-wider text-gray-600 mb-1">Translation</div>
         <div class="text-sm text-accent leading-relaxed">${escapeHtml(card.translation)}</div>
       </div>` : ''}
+      ${card.meaningEs ? `<div>
+        <div class="text-[10px] uppercase tracking-wider text-gray-600 mb-1">Explicación</div>
+        <div class="text-sm text-gray-300 leading-relaxed">${escapeHtml(card.meaningEs)}</div>
+      </div>` : ''}
       ${card.meaning ? `<div>
-        <div class="text-[10px] uppercase tracking-wider text-gray-600 mb-1">Explanation</div>
+        <div class="text-[10px] uppercase tracking-wider text-gray-600 mb-1">Explanation (English)</div>
         <div class="text-sm text-gray-300 leading-relaxed">${escapeHtml(card.meaning)}</div>
       </div>` : ''}
       ${card.targetLineBefore || card.targetLineAfter ? `
@@ -465,6 +471,7 @@ export function initCards(): void {
     if (result.success && (result.translation || result.explanation)) {
       setCurrentTranslation(result.translation || '');
       setCurrentExplanation(result.explanation || '');
+      setCurrentExplanationEs(result.explanationEs || '');
 
       // Look up CEFR level from cached lemmas
       const cefrColors: Record<string, string> = {
@@ -485,7 +492,8 @@ export function initCards(): void {
         : '';
 
       explainPanelResult.innerHTML = `
-        ${currentExplanation ? `<div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Explanation${cefrPill}</div><div class="text-xs text-gray-300 leading-relaxed">${escapeHtml(currentExplanation)}</div>` : ''}
+        ${currentExplanationEs ? `<div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Explicación${cefrPill}</div><div class="text-xs text-gray-300 leading-relaxed">${escapeHtml(currentExplanationEs)}</div>` : ''}
+        ${currentExplanation ? `<div class="explain-en-toggle mt-1"><button class="text-[10px] text-gray-600 hover:text-gray-400 cursor-pointer bg-transparent border border-gray-700 rounded px-1.5 py-0.5 transition-colors" onclick="var d=this.nextElementSibling;d.style.display=d.style.display==='none'?'block':'none';this.textContent=d.style.display==='none'?'▶ Show English':'▼ Hide English'">▶ Show English</button><div style="display:none"><div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5 mt-1">Explanation</div><div class="text-xs text-gray-300 leading-relaxed">${escapeHtml(currentExplanation)}</div></div></div>` : ''}
         ${currentTranslation ? `<div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-1 mb-0.5">Translation</div><div class="text-xs text-accent leading-relaxed">${escapeHtml(currentTranslation)}</div>` : ''}
       `;
       createCardBtn.classList.remove('hidden');
@@ -507,6 +515,7 @@ export function initCards(): void {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       expression: sub.text,
       meaning: currentExplanation,
+      meaningEs: currentExplanationEs,
       translation: currentTranslation,
       targetLineBefore: currentAnchorIndex > 0 ? subtitles[currentAnchorIndex - 1].text : '',
       targetLineAfter: currentAnchorIndex < subtitles.length - 1 ? subtitles[currentAnchorIndex + 1].text : '',
