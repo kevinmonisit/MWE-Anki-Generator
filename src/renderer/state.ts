@@ -1,4 +1,4 @@
-import type { Card, MWEResult, TranscriptLemma, CorpusProgress, MWEProgress } from '../shared/types';
+import type { Card, MWEResult, TranscriptLemma, CorpusProgress, MWEProgress, LemmaSource } from '../shared/types';
 
 export interface Subtitle {
   start: number;
@@ -63,6 +63,10 @@ export let selectedLemmaIndices = new Set<number>();
 export let lastClickedLemmaIndex = -1;
 /** The currently displayed (filtered+sorted) lemma list, kept in sync by renderTranscriptLemmas */
 export let displayedLemmaList: TranscriptLemma[] = [];
+/** Which lemma source is currently active */
+export let activeLemmaSource: LemmaSource = 'spacy';
+/** Cached lemma lists per source, so the user can flip between them without re-fetching */
+export let cachedLemmasBySource: Record<LemmaSource, { lemmas: TranscriptLemma[]; analyzedAt: string } | null> = { spacy: null, gpt: null };
 
 export function setSelectedLemmaIndices(s: Set<number>) { selectedLemmaIndices = s; }
 export function setLastClickedLemmaIndex(idx: number) { lastClickedLemmaIndex = idx; }
@@ -73,6 +77,9 @@ export function setCachedLemmaAnalyzedAt(at: string | null) { cachedLemmaAnalyze
 export function setLemmaFilter(f: 'all' | 'unknown' | 'known') { lemmaFilter = f; }
 export function setLemmaCefrFilter(f: string) { lemmaCefrFilter = f; }
 export function setIsLemmaAnalyzing(val: boolean) { isLemmaAnalyzing = val; }
+export function setActiveLemmaSource(s: LemmaSource) { activeLemmaSource = s; }
+export function setCachedLemmasBySource(source: LemmaSource, data: { lemmas: TranscriptLemma[]; analyzedAt: string } | null) { cachedLemmasBySource = { ...cachedLemmasBySource, [source]: data }; }
+export function resetCachedLemmasBySource() { cachedLemmasBySource = { spacy: null, gpt: null }; }
 
 // --- Explain state ---
 export let currentTranslation = '';

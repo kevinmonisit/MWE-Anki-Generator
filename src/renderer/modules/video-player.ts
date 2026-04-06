@@ -5,12 +5,16 @@ import {
   currentActiveIndex,
   mweView,
   cachedTranscriptLemmas,
+  activeLemmaSource,
   setSubtitles,
   setCurrentActiveIndex,
   setCurrentFolder,
   setCurrentVideoTitle,
   setCachedTranscriptLemmas,
   setCachedLemmaAnalyzedAt,
+  setCachedLemmasBySource,
+  resetCachedLemmasBySource,
+  setActiveLemmaSource,
   setSidebarView,
 } from '../state';
 import { escapeHtml, formatTime } from '../utils';
@@ -55,12 +59,25 @@ export async function selectVideo(video: {
   loadVideo(video.videoPath, video.srtPath);
   loadMWEsForFolder(video.folder);
 
-  // Load previously saved lemma analysis for this video
-  const saved = await window.api.loadTranscriptLemmas(video.folder);
-  if (saved.success && saved.lemmas) {
-    setCachedTranscriptLemmas(saved.lemmas);
-    setCachedLemmaAnalyzedAt(saved.analyzedAt || null);
-    if (mweView === 'lemmas') renderTranscriptLemmas(saved.lemmas);
+  // Load all saved lemma sources (spacy + gpt) for this video
+  resetCachedLemmasBySource();
+  const allSources = await window.api.loadAllLemmaSources(video.folder);
+  if (allSources.success) {
+    if (allSources.spacy) {
+      setCachedLemmasBySource('spacy', { lemmas: allSources.spacy.lemmas as TranscriptLemma[], analyzedAt: allSources.spacy.analyzedAt });
+    }
+    if (allSources.gpt) {
+      setCachedLemmasBySource('gpt', { lemmas: allSources.gpt.lemmas as TranscriptLemma[], analyzedAt: allSources.gpt.analyzedAt });
+    }
+    // Default to whichever source is available, preferring current active source
+    const preferred = allSources[activeLemmaSource] || allSources.gpt || allSources.spacy;
+    const activeSource = allSources[activeLemmaSource] ? activeLemmaSource : (allSources.gpt ? 'gpt' : 'spacy');
+    if (preferred) {
+      setActiveLemmaSource(activeSource);
+      setCachedTranscriptLemmas(preferred.lemmas as TranscriptLemma[]);
+      setCachedLemmaAnalyzedAt(preferred.analyzedAt || null);
+      if (mweView === 'lemmas') renderTranscriptLemmas(preferred.lemmas as TranscriptLemma[]);
+    }
   }
 }
 

@@ -4,10 +4,10 @@ import { execFile } from 'child_process';
 import fs from 'fs';
 import { ankiRequest } from '../services/storage';
 import { getClozeHint } from './explain';
-import type { ExportParams, ExportResult } from '../../shared/types';
+import type { ExportParams, ExportCard, ExportResult } from '../../shared/types';
 
-const PAD_START = 0.25;
-const PAD_END = 0.50;
+const SUBS2CIA_BIN = '/Users/kevinmonisit/Library/Python/3.9/bin/subs2cia';
+const PADDING_MS = 250;
 
 const ANKI_MODEL_ID = 2_345_678_901;
 const ANKI_MODEL_NAME = 'Spanish Vocab in Context';
@@ -53,13 +53,16 @@ const CARD_BACK = `<div class="audio-wrap">{{Audio}}</div>
 <div class="sentence">{{Sentence}}</div>
 <hr id="answer">
 <div class="phrase">"{{Phrase}}"</div>
-{{#ExplanationEs}}<div class="explanation-label">Explicación</div>
-<div class="explanation">{{ExplanationEs}}</div>{{/ExplanationEs}}
-{{#Explanation}}<div class="trans-section">
+{{#ExplanationEs}}<div id="expl-es"><div class="explanation-label">Explicación</div>
+<div class="explanation">{{ExplanationEs}}</div></div>{{/ExplanationEs}}
+{{#Explanation}}<div id="exen-toggle" class="trans-section">
 <button class="trans-toggle-btn" onclick="var d=document.getElementById('exen');d.style.display=d.style.display==='none'?'block':'none';this.textContent=d.style.display==='none'?'▶ Show English Explanation':'▼ Hide English Explanation'">▶ Show English Explanation</button>
 <div id="exen" style="display:none"><div class="explanation-label">Explanation</div>
 <div class="explanation">{{Explanation}}</div></div>
-</div>{{/Explanation}}
+</div>
+<div id="exen-direct" style="display:none"><div class="explanation-label">Explanation</div>
+<div class="explanation">{{Explanation}}</div></div>
+<script>if(!document.getElementById('expl-es')){document.getElementById('exen-toggle').style.display='none';document.getElementById('exen-direct').style.display='block';}</script>{{/Explanation}}
 {{#ContextBefore}}{{#ContextAfter}}<div class="context-wrap">
 <div class="context-label">Context</div>
 {{#ContextBefore}}<div class="context-line ctx-before">{{ContextBefore}}</div>{{/ContextBefore}}
@@ -142,6 +145,92 @@ function runFfmpeg(args: string[]): Promise<void> {
   });
 }
 
+/** Convert seconds to SRT timecode: HH:MM:SS,mmm */
+function toSrtTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.round((seconds - Math.floor(seconds)) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+}
+
+/** Build a temporary SRT file containing only the given cards' subtitle lines. */
+function buildTempSrt(cards: ExportCard[], outPath: string): void {
+  const lines: string[] = [];
+  cards.forEach((card, i) => {
+    lines.push(String(i + 1));
+    lines.push(`${toSrtTime(card.startTime)} --> ${toSrtTime(card.endTime)}`);
+    lines.push(card.expression);
+    lines.push('');
+  });
+  fs.writeFileSync(outPath, lines.join('\n'), 'utf-8');
+}
+
+/** Run subs2cia srs and return the output directory listing. */
+function runSubs2cia(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(SUBS2CIA_BIN, args, {
+      timeout: 120000,
+      env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ''}` },
+    }, (err, stdout, stderr) => {
+      if (err) reject(new Error(`subs2cia failed: ${err.message}\n${stderr}`));
+      else resolve(stdout);
+    });
+  });
+}
+
+interface Subs2ciaClip {
+  text: string;
+  startMs: number;
+  endMs: number;
+  audioFile: string;
+  imageFile: string;
+}
+
+/** Parse the TSV output by subs2cia srs to map subtitle text → generated filenames. */
+function parseSubs2ciaTsv(tsvPath: string): Subs2ciaClip[] {
+  if (!fs.existsSync(tsvPath)) return [];
+  const content = fs.readFileSync(tsvPath, 'utf-8');
+  const clips: Subs2ciaClip[] = [];
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue;
+    // Columns: text, timestamps (start-end ms), audioclip [sound:...], screenclip <img...>, videoclip, sources
+    const cols = line.split('\t');
+    if (cols.length < 4) continue;
+    const text = cols[0];
+    const timestamps = cols[1]; // e.g. "1234-5678"
+    const [startStr, endStr] = timestamps.split('-');
+    const startMs = parseInt(startStr, 10);
+    const endMs = parseInt(endStr, 10);
+    // Extract filename from [sound:filename.mp3]
+    const audioMatch = cols[2]?.match(/\[sound:(.+?)\]/);
+    const audioFile = audioMatch ? audioMatch[1] : '';
+    // Extract filename from <img src='filename.jpg'>
+    const imgMatch = cols[3]?.match(/src='(.+?)'/);
+    const imageFile = imgMatch ? imgMatch[1] : '';
+    clips.push({ text, startMs, endMs, audioFile, imageFile });
+  }
+  return clips;
+}
+
+/** Find the subs2cia clip that best matches a card by time overlap. */
+function findClipForCard(card: ExportCard, clips: Subs2ciaClip[]): Subs2ciaClip | undefined {
+  const cardStartMs = Math.round(card.startTime * 1000);
+  const cardEndMs = Math.round(card.endTime * 1000);
+  // Find clip with the closest start time (within 1 second tolerance)
+  let best: Subs2ciaClip | undefined;
+  let bestDist = Infinity;
+  for (const clip of clips) {
+    const dist = Math.abs(clip.startMs - cardStartMs) + Math.abs(clip.endMs - cardEndMs);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = clip;
+    }
+  }
+  // Only accept matches within 1500ms total distance
+  return bestDist <= 1500 ? best : undefined;
+}
+
 export function registerAnkiHandlers(
   getApiKey: () => string,
   trackCost: (model: string, promptTokens: number, completionTokens: number, source: string) => void
@@ -172,30 +261,105 @@ export function registerAnkiHandlers(
       return { results: cards.map(c => ({ cardId: c.id, success: false, error: `Model creation failed: ${(err as Error).message}` })) };
     }
 
+    // --- Phase 1: Use subs2cia to batch-extract audio clips ---
+    const subs2ciaOutDir = path.join(videoDir, 'subs2srs', 'subs2cia_tmp');
+    fs.mkdirSync(subs2ciaOutDir, { recursive: true });
+
+    const tempSrtPath = path.join(subs2ciaOutDir, 'export_cards.srt');
+    buildTempSrt(cards, tempSrtPath);
+
+    const subs2ciaStem = 'card_export';
+    let clips: Subs2ciaClip[] = [];
+
+    try {
+      await runSubs2cia([
+        'srs',
+        '-i', videoPath, tempSrtPath,
+        '-d', subs2ciaOutDir,
+        '-o', subs2ciaStem,
+        '-p', String(PADDING_MS),
+        '-M',   // mono
+        '-ni',  // don't filter dialogue heuristics
+      ]);
+
+      const tsvPath = path.join(subs2ciaOutDir, `${subs2ciaStem}.tsv`);
+      clips = parseSubs2ciaTsv(tsvPath);
+      console.log(`[subs2cia] Generated ${clips.length} clips for ${cards.length} cards`);
+    } catch (err) {
+      console.error('[subs2cia] Failed, will fall back to ffmpeg for audio:', (err as Error).message);
+    }
+
+    // --- Phase 2: For each card, find subs2cia clip or fall back to ffmpeg ---
     const results: ExportResult[] = [];
 
     for (const card of cards) {
       try {
-        const audioFile = `${card.id}.mp3`;
-        const imgFile = `${card.id}.jpg`;
-        const audioPath = path.join(audioDir, audioFile);
-        const imgPath = path.join(imgDir, imgFile);
+        let audioFile: string;
+        let imgFile: string;
+        let audioPath: string;
+        let imgPath: string;
 
-        const paddedStart = Math.max(0, card.startTime - PAD_START);
-        const duration = (card.endTime + PAD_END) - paddedStart;
-        await runFfmpeg([
-          '-y', '-ss', paddedStart.toFixed(3), '-i', videoPath,
-          '-t', Math.max(duration, 0.1).toFixed(3),
-          '-vn', '-ac', '1', '-ar', '44100', '-q:a', '5',
-          audioPath,
-        ]);
+        const clip = findClipForCard(card, clips);
 
-        const midpoint = (card.startTime + card.endTime) / 2;
-        await runFfmpeg([
-          '-y', '-ss', midpoint.toFixed(3), '-i', videoPath,
-          '-vframes', '1', '-q:v', '3',
-          imgPath,
-        ]);
+        if (clip && clip.audioFile) {
+          // Use subs2cia-generated audio clip
+          const s2cAudioPath = path.join(subs2ciaOutDir, clip.audioFile);
+          audioFile = `${card.id}.mp3`;
+          audioPath = path.join(audioDir, audioFile);
+
+          if (fs.existsSync(s2cAudioPath)) {
+            fs.copyFileSync(s2cAudioPath, audioPath);
+          } else {
+            // subs2cia file missing, fall back to ffmpeg
+            const paddedStart = Math.max(0, card.startTime - PADDING_MS / 1000);
+            const duration = (card.endTime + PADDING_MS / 1000) - paddedStart;
+            await runFfmpeg([
+              '-y', '-ss', paddedStart.toFixed(3), '-i', videoPath,
+              '-t', Math.max(duration, 0.1).toFixed(3),
+              '-vn', '-ac', '1', '-ar', '44100', '-q:a', '5',
+              audioPath,
+            ]);
+          }
+        } else {
+          // No subs2cia match, fall back to ffmpeg for audio
+          audioFile = `${card.id}.mp3`;
+          audioPath = path.join(audioDir, audioFile);
+          const paddedStart = Math.max(0, card.startTime - PADDING_MS / 1000);
+          const duration = (card.endTime + PADDING_MS / 1000) - paddedStart;
+          await runFfmpeg([
+            '-y', '-ss', paddedStart.toFixed(3), '-i', videoPath,
+            '-t', Math.max(duration, 0.1).toFixed(3),
+            '-vn', '-ac', '1', '-ar', '44100', '-q:a', '5',
+            audioPath,
+          ]);
+        }
+
+        // Use subs2cia-generated screenshot if available, else ffmpeg
+        if (clip && clip.imageFile) {
+          const s2cImgPath = path.join(subs2ciaOutDir, clip.imageFile);
+          imgFile = `${card.id}.jpg`;
+          imgPath = path.join(imgDir, imgFile);
+
+          if (fs.existsSync(s2cImgPath)) {
+            fs.copyFileSync(s2cImgPath, imgPath);
+          } else {
+            const midpoint = (card.startTime + card.endTime) / 2;
+            await runFfmpeg([
+              '-y', '-ss', midpoint.toFixed(3), '-i', videoPath,
+              '-vframes', '1', '-q:v', '3',
+              imgPath,
+            ]);
+          }
+        } else {
+          imgFile = `${card.id}.jpg`;
+          imgPath = path.join(imgDir, imgFile);
+          const midpoint = (card.startTime + card.endTime) / 2;
+          await runFfmpeg([
+            '-y', '-ss', midpoint.toFixed(3), '-i', videoPath,
+            '-vframes', '1', '-q:v', '3',
+            imgPath,
+          ]);
+        }
 
         const audioData = fs.readFileSync(audioPath).toString('base64');
         const imgData = fs.readFileSync(imgPath).toString('base64');
@@ -204,7 +368,6 @@ export function registerAnkiHandlers(
         await ankiRequest('storeMediaFile', { filename: imgFile, data: imgData });
 
         if (card.chunking && chunkingDeckName) {
-          // Chunked cards go only to the chunking deck, not the sentence mining deck
           try {
             const apiKey = getApiKey();
             const hint = card.clozeHint || await getClozeHint(apiKey, card.selectedText, card.expression, card.translation || '', trackCost);
@@ -268,6 +431,11 @@ export function registerAnkiHandlers(
         results.push({ cardId: card.id, success: false, error: (err as Error).message });
       }
     }
+
+    // Clean up subs2cia temp directory
+    try {
+      fs.rmSync(subs2ciaOutDir, { recursive: true, force: true });
+    } catch { /* ignore cleanup errors */ }
 
     return { results };
   });

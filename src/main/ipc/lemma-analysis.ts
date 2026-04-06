@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, net } from 'electron';
 import path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
-import { ankiRequest, loadSettings, loadLemmasFromDisk, saveLemmasToDisk } from '../services/storage';
+import { ankiRequest, loadSettings, loadLemmasFromDisk, loadAllLemmaSourcesFromDisk, saveLemmasToDisk } from '../services/storage';
 import { getLevelProfile, cefrAtOrBelow, lookupCEFR } from '../mwe/mwe-pipeline';
 import { MIGAKU_POS_MAP } from '../../shared/constants';
 import type { TranscriptLemmaData, LemmaAnalysisProgress } from '../../shared/types';
@@ -318,8 +318,8 @@ export function registerLemmaHandlers(
             computeOneTCounts(taggedLemmas, parsed.sentence_map);
 
             const knownCount = taggedLemmas.filter(l => l.is_known).length;
-            saveLemmasToDisk(folder, taggedLemmas);
-            resolve({ success: true, lemmas: taggedLemmas, totalInTranscript: parsed.lemmas.length, knownCount, unknownCount: parsed.lemmas.length - knownCount, userLevel });
+            saveLemmasToDisk(folder, taggedLemmas, 'spacy');
+            resolve({ success: true, lemmas: taggedLemmas, totalInTranscript: parsed.lemmas.length, knownCount, unknownCount: parsed.lemmas.length - knownCount, userLevel, source: 'spacy' });
           } catch (e) {
             resolve({ success: false, error: 'Failed to parse lemma output: ' + (e as Error).message });
           }
@@ -419,8 +419,8 @@ export function registerLemmaHandlers(
       computeOneTCounts(taggedLemmas, sentence_lemma_keys);
 
       const knownCount = taggedLemmas.filter(l => l.is_known).length;
-      saveLemmasToDisk(folder, taggedLemmas);
-      return { success: true, lemmas: taggedLemmas, totalInTranscript: allLemmas.length, knownCount, unknownCount: allLemmas.length - knownCount, userLevel };
+      saveLemmasToDisk(folder, taggedLemmas, 'gpt');
+      return { success: true, lemmas: taggedLemmas, totalInTranscript: allLemmas.length, knownCount, unknownCount: allLemmas.length - knownCount, userLevel, source: 'gpt' };
     } catch (e) {
       return { success: false, error: 'GPT lemma analysis failed: ' + (e as Error).message };
     }
@@ -461,6 +461,50 @@ export function registerLemmaHandlers(
 
     const knownCount = lemmas.filter((l: TranscriptLemmaData) => l.is_known).length;
     return { success: true, lemmas, analyzedAt, totalInTranscript: lemmas.length, knownCount, unknownCount: lemmas.length - knownCount, userLevel };
+  });
+
+  // Load all lemma sources (spacy + gpt) for a video
+  ipcMain.handle('load-all-lemma-sources', async (_event, folder: string) => {
+    const store = loadAllLemmaSourcesFromDisk(folder);
+    if (!store) return { success: false };
+
+    const knownSet = getKnownLemmaSet();
+    const settings = loadSettings();
+    const userLevel = settings.userLevel || 'B1';
+
+    const result: { success: boolean; spacy?: { lemmas: TranscriptLemmaData[]; analyzedAt: string }; gpt?: { lemmas: TranscriptLemmaData[]; analyzedAt: string }; userLevel: string } = { success: true, userLevel };
+
+    for (const source of ['spacy', 'gpt'] as const) {
+      const data = store[source];
+      if (!data) continue;
+      const { lemmas, analyzedAt } = data;
+
+      const lemmasNeedingFreq = lemmas.filter((l: TranscriptLemmaData) => !l.cefr_level && (!l.general_freq || l.general_freq === 0));
+      if (lemmasNeedingFreq.length > 0) {
+        const uniqueWords = [...new Set(lemmasNeedingFreq.map((l: TranscriptLemmaData) => l.lemma))];
+        const zipfMap = await fetchZipfFrequencies(uniqueWords);
+        for (const l of lemmasNeedingFreq) {
+          if (zipfMap[l.lemma] !== undefined) {
+            l.general_freq = Math.round(zipfMap[l.lemma] * 100) / 100;
+          }
+        }
+      }
+
+      for (const l of lemmas) {
+        const cefrLevel = l.cefr_level ?? lookupCEFR(l.lemma, l.pos, l.general_freq);
+        l.cefr_level = cefrLevel;
+        const inDeck = knownSet.has(l.lemma);
+        const inferredByLevel = cefrAtOrBelow(cefrLevel, userLevel);
+        l.is_known = inDeck || inferredByLevel;
+        l.known_source = inDeck ? 'deck' : inferredByLevel ? 'level' : null;
+        if (!l.sentence_indices) l.sentence_indices = [l.first_sentence_index];
+        if (l.one_t_count === undefined) l.one_t_count = 0;
+      }
+
+      result[source] = { lemmas, analyzedAt };
+    }
+
+    return result;
   });
 }
 

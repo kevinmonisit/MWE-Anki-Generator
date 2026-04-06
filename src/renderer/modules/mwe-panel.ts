@@ -1,4 +1,4 @@
-import type { MWEResult, MWEProgress, TranscriptLemma, LemmaAnalysisProgress } from '../../shared/types';
+import type { MWEResult, MWEProgress, TranscriptLemma, LemmaAnalysisProgress, LemmaSource } from '../../shared/types';
 import { escapeHtml } from '../utils';
 import {
   subtitles,
@@ -18,6 +18,8 @@ import {
   selectedLemmaIndices, setLastClickedLemmaIndex, lastClickedLemmaIndex,
   displayedLemmaList, setDisplayedLemmaList,
   sidebarView,
+  activeLemmaSource, setActiveLemmaSource,
+  cachedLemmasBySource, setCachedLemmasBySource,
 } from '../state';
 
 // --- Constants ---
@@ -393,8 +395,12 @@ async function runLemmaAnalysis(method: 'spacy' | 'gpt' = 'spacy'): Promise<void
       ? await window.api.analyzeTranscriptLemmasGpt(currentFolder)
       : await window.api.analyzeTranscriptLemmas(currentFolder);
     if (result.success && result.lemmas) {
+      const source: LemmaSource = method === 'gpt' ? 'gpt' : 'spacy';
+      const analyzedAt = result.analyzedAt || new Date().toISOString();
+      setCachedLemmasBySource(source, { lemmas: result.lemmas, analyzedAt });
+      setActiveLemmaSource(source);
       setCachedTranscriptLemmas(result.lemmas);
-      setCachedLemmaAnalyzedAt(result.analyzedAt || new Date().toISOString());
+      setCachedLemmaAnalyzedAt(analyzedAt);
       if (mweView === 'lemmas') {
         renderTranscriptLemmas(result.lemmas);
       }
@@ -507,6 +513,20 @@ export function renderTranscriptLemmas(allLemmas: TranscriptLemma[]): void {
       </span>
     </span>
   </div>`;
+
+  // Source toggle (spacy / gpt) — show when both sources have data
+  const hasSpacy = cachedLemmasBySource.spacy !== null;
+  const hasGpt = cachedLemmasBySource.gpt !== null;
+  if (hasSpacy && hasGpt) {
+    const srcBtnClass = (s: LemmaSource) => s === activeLemmaSource
+      ? 'px-2 py-0.5 rounded text-[10px] font-semibold bg-accent/20 text-accent border border-accent/30'
+      : 'px-2 py-0.5 rounded text-[10px] font-medium text-gray-600 hover:text-gray-400 hover:bg-white/5 border border-transparent';
+    html += `<div class="px-3 py-1 flex items-center gap-1.5 border-b border-border-primary bg-bg-primary/20">
+      <span class="text-[9px] text-gray-600 uppercase tracking-wider mr-1">Source</span>
+      <button class="${srcBtnClass('spacy')}" data-lemma-source="spacy">SpaCy</button>
+      <button class="${srcBtnClass('gpt')}" data-lemma-source="gpt">GPT</button>
+    </div>`;
+  }
 
   // Comprehension percentage
   const comprehensionPct = allLemmas.length > 0 ? Math.round(knownCount / allLemmas.length * 100) : 0;
@@ -934,6 +954,23 @@ function attachLemmaFilterListeners(): void {
       setLastClickedLemmaIndex(-1);
       setLemmaCefrFilter((btn as HTMLElement).dataset.cefrFilter || 'all');
       if (cachedTranscriptLemmas) renderTranscriptLemmas(cachedTranscriptLemmas);
+    });
+  });
+
+  // Source toggle (spacy / gpt)
+  mweList.querySelectorAll('[data-lemma-source]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const source = (btn as HTMLElement).dataset.lemmaSource as LemmaSource;
+      if (source === activeLemmaSource) return;
+      const cached = cachedLemmasBySource[source];
+      if (!cached) return;
+      setActiveLemmaSource(source);
+      setCachedTranscriptLemmas(cached.lemmas);
+      setCachedLemmaAnalyzedAt(cached.analyzedAt);
+      selectedLemmaIndices.clear();
+      setLastClickedLemmaIndex(-1);
+      renderTranscriptLemmas(cached.lemmas);
     });
   });
 

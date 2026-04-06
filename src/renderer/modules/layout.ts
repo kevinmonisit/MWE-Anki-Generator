@@ -41,6 +41,58 @@ let mweResizeHandle: HTMLDivElement;
 let videoPlayer: HTMLVideoElement;
 let welcomeEl: HTMLDivElement;
 
+// Track collapsed state for hidden section across refreshes
+let hiddenSectionCollapsed = true;
+
+function createVideoItem(video: { folder: string; title: string; url: string; videoPath: string; srtPath: string; hasSrt: boolean; transcriptionMethod?: string; hidden?: boolean }, isHidden: boolean): HTMLDivElement {
+  const item = document.createElement('div');
+  item.className =
+    'sidebar-item group py-2.5 px-4 cursor-pointer transition-colors duration-150 border-l-[3px] border-l-transparent flex items-center gap-2 hover:bg-accent/10' +
+    (video.folder === currentFolder ? ' active' : '');
+  const methodTag = video.transcriptionMethod === 'elevenlabs'
+    ? '<span class="text-[10px] text-purple-400 font-medium">ElevenLabs</span>'
+    : video.transcriptionMethod === 'whisper'
+      ? '<span class="text-[10px] text-blue-400 font-medium">Whisper</span>'
+      : '';
+  const hideBtn = isHidden
+    ? `<button class="hide-btn opacity-0 group-hover:opacity-100 bg-transparent border-none text-gray-500 text-xs cursor-pointer py-0.5 px-1.5 rounded transition-all duration-150 hover:text-green-400 shrink-0" title="Unhide">&#x2191;</button>`
+    : `<button class="hide-btn opacity-0 group-hover:opacity-100 bg-transparent border-none text-gray-500 text-xs cursor-pointer py-0.5 px-1.5 rounded transition-all duration-150 hover:text-yellow-400 shrink-0" title="Hide">&#x2193;</button>`;
+  item.innerHTML = `
+    <div class="flex-1 min-w-0">
+      <span class="sidebar-item-title text-[13px] leading-snug text-gray-400 overflow-hidden text-ellipsis line-clamp-2">${escapeHtml(video.title)}</span>
+      ${methodTag}
+    </div>
+    ${hideBtn}
+    <button class="delete-btn opacity-0 group-hover:opacity-100 bg-transparent border-none text-gray-500 text-base cursor-pointer py-0.5 px-1.5 rounded transition-all duration-150 hover:text-accent shrink-0" title="Delete">&times;</button>
+  `;
+
+  (item.querySelector('.sidebar-item-title') as HTMLElement).addEventListener('click', () => {
+    selectVideo({ ...video, title: video.title });
+  });
+
+  (item.querySelector('.hide-btn') as HTMLElement).addEventListener('click', async (e: Event) => {
+    e.stopPropagation();
+    await window.api.toggleVideoHidden(video.folder, !isHidden);
+    refreshSidebar();
+  });
+
+  (item.querySelector('.delete-btn') as HTMLElement).addEventListener('click', async (e: Event) => {
+    e.stopPropagation();
+    if (confirm(`Delete "${video.title}"?`)) {
+      await window.api.deleteDownload(video.folder);
+      if (currentFolder === video.folder) {
+        setCurrentFolder(null);
+        setSidebarView('videos');
+        contentEl.classList.remove('visible');
+        welcomeEl.style.display = '';
+      }
+      refreshSidebar();
+    }
+  });
+
+  return item;
+}
+
 export async function refreshSidebar(): Promise<void> {
   if (sidebarView === 'cards' && currentFolder) {
     renderCardsView(currentFolder, currentVideoTitle);
@@ -59,35 +111,39 @@ export async function refreshSidebar(): Promise<void> {
     return;
   }
 
-  for (const video of videos) {
-    const item = document.createElement('div');
-    item.className =
-      'sidebar-item group py-2.5 px-4 cursor-pointer transition-colors duration-150 border-l-[3px] border-l-transparent flex items-center gap-2 hover:bg-accent/10' +
-      (video.folder === currentFolder ? ' active' : '');
-    item.innerHTML = `
-      <span class="sidebar-item-title flex-1 text-[13px] leading-snug text-gray-400 overflow-hidden text-ellipsis line-clamp-2">${escapeHtml(video.title)}</span>
-      <button class="opacity-0 group-hover:opacity-100 bg-transparent border-none text-gray-500 text-base cursor-pointer py-0.5 px-1.5 rounded transition-all duration-150 hover:text-accent shrink-0" title="Delete">&times;</button>
-    `;
+  const visible = videos.filter(v => !v.hidden);
+  const hidden = videos.filter(v => v.hidden);
 
-    (item.querySelector('.sidebar-item-title') as HTMLElement).addEventListener('click', () => {
-      selectVideo({ ...video, title: video.title });
+  for (const video of visible) {
+    sidebarList.appendChild(createVideoItem(video, false));
+  }
+
+  if (hidden.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'mt-2 border-t border-border-primary';
+
+    const header = document.createElement('div');
+    header.className = 'flex items-center gap-1.5 py-2 px-4 cursor-pointer text-[11px] text-gray-500 uppercase tracking-wider font-semibold hover:text-gray-400 select-none';
+    header.innerHTML = `<span class="transition-transform duration-150 ${hiddenSectionCollapsed ? '' : 'rotate-90'}" style="display:inline-block">&#x25B6;</span> Hidden (${hidden.length})`;
+
+    const list = document.createElement('div');
+    if (hiddenSectionCollapsed) {
+      list.style.display = 'none';
+    }
+    for (const video of hidden) {
+      list.appendChild(createVideoItem(video, true));
+    }
+
+    header.addEventListener('click', () => {
+      hiddenSectionCollapsed = !hiddenSectionCollapsed;
+      list.style.display = hiddenSectionCollapsed ? 'none' : '';
+      const arrow = header.querySelector('span') as HTMLElement;
+      arrow.classList.toggle('rotate-90', !hiddenSectionCollapsed);
     });
 
-    (item.querySelector('button') as HTMLElement).addEventListener('click', async (e: Event) => {
-      e.stopPropagation();
-      if (confirm(`Delete "${video.title}"?`)) {
-        await window.api.deleteDownload(video.folder);
-        if (currentFolder === video.folder) {
-          setCurrentFolder(null);
-          setSidebarView('videos');
-          contentEl.classList.remove('visible');
-          welcomeEl.style.display = '';
-        }
-        refreshSidebar();
-      }
-    });
-
-    sidebarList.appendChild(item);
+    section.appendChild(header);
+    section.appendChild(list);
+    sidebarList.appendChild(section);
   }
 }
 

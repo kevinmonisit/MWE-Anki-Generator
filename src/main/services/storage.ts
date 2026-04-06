@@ -46,22 +46,53 @@ export function saveCardsToDisk(folder: string, cards: Card[]): void {
 }
 
 // --- Lemmas ---
-export function loadLemmasFromDisk(folder: string): { lemmas: TranscriptLemmaData[]; analyzedAt: string } | null {
+export type LemmaSource = 'spacy' | 'gpt';
+
+interface LemmaSourceData {
+  lemmas: TranscriptLemmaData[];
+  analyzedAt: string;
+}
+
+interface DualLemmaStore {
+  spacy?: LemmaSourceData;
+  gpt?: LemmaSourceData;
+}
+
+/** Read the raw JSON and migrate old single-list format into dual-source format. */
+function readLemmaStore(folder: string): DualLemmaStore | null {
   try {
     const filePath = path.join(LEMMAS_DIR, `${folder}.json`);
-    const data = fs.readFileSync(filePath, 'utf-8');
-    return JSON.parse(data);
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    // Old format: { lemmas: [...], analyzedAt: "..." }
+    if (Array.isArray(data.lemmas) && !data.spacy && !data.gpt) {
+      return { spacy: { lemmas: data.lemmas, analyzedAt: data.analyzedAt } };
+    }
+    return data as DualLemmaStore;
   } catch {
     return null;
   }
 }
 
-export function saveLemmasToDisk(folder: string, lemmas: TranscriptLemmaData[]): void {
+export function loadLemmasFromDisk(folder: string, source?: LemmaSource): { lemmas: TranscriptLemmaData[]; analyzedAt: string } | null {
+  const store = readLemmaStore(folder);
+  if (!store) return null;
+  if (source) {
+    return store[source] || null;
+  }
+  // No source specified: return gpt if available, else spacy (backwards compat)
+  return store.gpt || store.spacy || null;
+}
+
+export function loadAllLemmaSourcesFromDisk(folder: string): { spacy?: LemmaSourceData; gpt?: LemmaSourceData } | null {
+  return readLemmaStore(folder);
+}
+
+export function saveLemmasToDisk(folder: string, lemmas: TranscriptLemmaData[], source: LemmaSource = 'spacy'): void {
   fs.mkdirSync(LEMMAS_DIR, { recursive: true });
-  fs.writeFileSync(
-    path.join(LEMMAS_DIR, `${folder}.json`),
-    JSON.stringify({ lemmas, analyzedAt: new Date().toISOString() }, null, 2)
-  );
+  const filePath = path.join(LEMMAS_DIR, `${folder}.json`);
+  const existing = readLemmaStore(folder) || {};
+  existing[source] = { lemmas, analyzedAt: new Date().toISOString() };
+  fs.writeFileSync(filePath, JSON.stringify(existing, null, 2));
 }
 
 // --- API Cost ---

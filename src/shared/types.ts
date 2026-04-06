@@ -95,6 +95,8 @@ export interface TranscriptLemma {
   one_t_count: number;
 }
 
+export type LemmaSource = 'spacy' | 'gpt';
+
 export interface TranscriptLemmaResult {
   success: boolean;
   lemmas?: TranscriptLemma[];
@@ -102,6 +104,15 @@ export interface TranscriptLemmaResult {
   knownCount?: number;
   unknownCount?: number;
   analyzedAt?: string;
+  userLevel?: string;
+  error?: string;
+  source?: LemmaSource;
+}
+
+export interface AllLemmaSourcesResult {
+  success: boolean;
+  spacy?: { lemmas: TranscriptLemma[]; analyzedAt: string };
+  gpt?: { lemmas: TranscriptLemma[]; analyzedAt: string };
   userLevel?: string;
   error?: string;
 }
@@ -185,6 +196,8 @@ export interface ExportResult {
 export interface VideoInfo {
   title?: string;
   url?: string;
+  transcriptionMethod?: 'whisper' | 'elevenlabs';
+  hidden?: boolean;
 }
 
 export interface VideoEntry {
@@ -194,6 +207,8 @@ export interface VideoEntry {
   videoPath: string;
   srtPath: string;
   hasSrt: boolean;
+  transcriptionMethod?: 'whisper' | 'elevenlabs';
+  hidden?: boolean;
 }
 
 export interface DownloadSuccess {
@@ -216,6 +231,7 @@ export interface ElectronAPI {
   readFile: (filePath: string) => Promise<string>;
   listDownloads: () => Promise<VideoEntry[]>;
   deleteDownload: (folder: string) => Promise<{ success: boolean; error?: string }>;
+  toggleVideoHidden: (folder: string, hidden: boolean) => Promise<{ success: boolean }>;
   ankiInvoke: (action: string, params?: Record<string, unknown>) => Promise<{ result: unknown; error: string | null }>;
   explainText: (params: ExplainParams) => Promise<{ success: boolean; translation?: string; explanation?: string; explanationEs?: string; error?: string }>;
   getDownloadPath: (folder: string) => Promise<string>;
@@ -252,6 +268,7 @@ export interface ElectronAPI {
   analyzeTranscriptLemmas: (folder: string) => Promise<TranscriptLemmaResult>;
   analyzeTranscriptLemmasGpt: (folder: string) => Promise<TranscriptLemmaResult>;
   loadTranscriptLemmas: (folder: string) => Promise<TranscriptLemmaResult>;
+  loadAllLemmaSources: (folder: string) => Promise<AllLemmaSourcesResult>;
   cancelLemmaAnalysis: () => Promise<void>;
   onLemmaAnalysisProgress: (callback: (progress: LemmaAnalysisProgress) => void) => void;
 

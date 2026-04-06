@@ -120,15 +120,19 @@ export function registerDownloadHandlers(getMainWindow: () => BrowserWindow | nu
 
       let title = entry.name;
       let url = '';
+      let transcriptionMethod: 'whisper' | 'elevenlabs' | undefined;
+      let hidden = false;
       if (fs.existsSync(infoPath)) {
         try {
           const info: VideoInfo = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
           title = info.title || entry.name;
           url = info.url || '';
+          transcriptionMethod = info.transcriptionMethod;
+          hidden = !!info.hidden;
         } catch { /* ignore */ }
       }
 
-      videos.push({ folder: entry.name, title, url, videoPath, srtPath, hasSrt: fs.existsSync(srtPath) });
+      videos.push({ folder: entry.name, title, url, videoPath, srtPath, hasSrt: fs.existsSync(srtPath), transcriptionMethod, hidden });
     }
 
     return videos;
@@ -141,6 +145,19 @@ export function registerDownloadHandlers(getMainWindow: () => BrowserWindow | nu
       return { success: true };
     }
     return { success: false, error: 'Folder not found' };
+  });
+
+  ipcMain.handle('toggle-video-hidden', async (_event, folder: string, hidden: boolean) => {
+    const videoDir = path.join(DOWNLOADS_DIR, folder);
+    const infoPath = path.join(videoDir, 'info.json');
+    if (!fs.existsSync(videoDir)) return { success: false };
+    let info: VideoInfo = {};
+    if (fs.existsSync(infoPath)) {
+      try { info = JSON.parse(fs.readFileSync(infoPath, 'utf-8')); } catch { /* ignore */ }
+    }
+    info.hidden = hidden;
+    fs.writeFileSync(infoPath, JSON.stringify(info, null, 2));
+    return { success: true };
   });
 
   ipcMain.handle('read-file', async (_event, filePath: string) => {

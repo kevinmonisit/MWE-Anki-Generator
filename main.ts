@@ -188,6 +188,7 @@ type DownloadResult = DownloadSuccess | DownloadFailure;
 interface VideoInfo {
   title?: string;
   url?: string;
+  transcriptionMethod?: 'whisper' | 'elevenlabs';
 }
 
 interface VideoEntry {
@@ -197,6 +198,7 @@ interface VideoEntry {
   videoPath: string;
   srtPath: string;
   hasSrt: boolean;
+  transcriptionMethod?: 'whisper' | 'elevenlabs';
 }
 
 function createWindow(): void {
@@ -354,11 +356,13 @@ ipcMain.handle('list-downloads', async (): Promise<VideoEntry[]> => {
 
     let title = entry.name;
     let url = '';
+    let transcriptionMethod: 'whisper' | 'elevenlabs' | undefined;
     if (fs.existsSync(infoPath)) {
       try {
         const info: VideoInfo = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
         title = info.title || entry.name;
         url = info.url || '';
+        transcriptionMethod = info.transcriptionMethod;
       } catch (_e) { /* ignore */ }
     }
 
@@ -369,6 +373,7 @@ ipcMain.handle('list-downloads', async (): Promise<VideoEntry[]> => {
       videoPath,
       srtPath,
       hasSrt: fs.existsSync(srtPath),
+      transcriptionMethod,
     });
   }
 

@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   cancelDownload: () => ipcRenderer.invoke('cancel-download'),
   listDownloads: () => ipcRenderer.invoke('list-downloads'),
   deleteDownload: (folder: string) => ipcRenderer.invoke('delete-download', folder),
+  toggleVideoHidden: (folder: string, hidden: boolean) => ipcRenderer.invoke('toggle-video-hidden', folder, hidden),
   getDownloadPath: (folder: string) => ipcRenderer.invoke('get-download-path', folder),
 
   // ── Files & Settings ───────────────────────────────────────────────
@@ -50,6 +51,7 @@ contextBridge.exposeInMainWorld('api', {
   analyzeTranscriptLemmas: (folder: string) => ipcRenderer.invoke('analyze-transcript-lemmas', folder),
   analyzeTranscriptLemmasGpt: (folder: string) => ipcRenderer.invoke('analyze-transcript-lemmas-gpt', folder),
   loadTranscriptLemmas: (folder: string) => ipcRenderer.invoke('load-transcript-lemmas', folder),
+  loadAllLemmaSources: (folder: string) => ipcRenderer.invoke('load-all-lemma-sources', folder),
   cancelLemmaAnalysis: () => ipcRenderer.invoke('cancel-lemma-analysis'),
   onLemmaAnalysisProgress: (callback: (progress: LemmaAnalysisProgress) => void) => {
     ipcRenderer.on('lemma-analysis-progress', (_event, progress: LemmaAnalysisProgress) => callback(progress));

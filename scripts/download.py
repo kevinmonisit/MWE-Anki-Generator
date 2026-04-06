@@ -311,7 +311,7 @@ def download(url: str, output_dir: str, transcription_method: str = "whisper"):
     transcribe_audio(mp3_path, srt_path, method=transcription_method)
 
     # Save metadata
-    info = {"title": title, "url": url, "folder": folder_name}
+    info = {"title": title, "url": url, "folder": folder_name, "transcriptionMethod": transcription_method}
     info_path = os.path.join(video_dir, "info.json")
     with open(info_path, "w") as f:
         json.dump(info, f, indent=2)

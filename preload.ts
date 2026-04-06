@@ -94,6 +94,7 @@ export interface ElectronAPI {
   analyzeTranscriptLemmas: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; analyzedAt?: string; error?: string }>;
   analyzeTranscriptLemmasGpt: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; analyzedAt?: string; error?: string }>;
   loadTranscriptLemmas: (folder: string) => Promise<{ success: boolean; lemmas?: { lemma: string; pos: string; transcript_count: number; general_freq: number; score: number; is_known: boolean }[]; totalInTranscript?: number; knownCount?: number; unknownCount?: number; analyzedAt?: string; error?: string }>;
+  loadAllLemmaSources: (folder: string) => Promise<{ success: boolean; spacy?: { lemmas: any[]; analyzedAt: string }; gpt?: { lemmas: any[]; analyzedAt: string }; userLevel?: string; error?: string }>;
 }
 
 contextBridge.exposeInMainWorld('api', {
@@ -148,4 +149,5 @@ contextBridge.exposeInMainWorld('api', {
   analyzeTranscriptLemmas: (folder: string) => ipcRenderer.invoke('analyze-transcript-lemmas', folder),
   analyzeTranscriptLemmasGpt: (folder: string) => ipcRenderer.invoke('analyze-transcript-lemmas-gpt', folder),
   loadTranscriptLemmas: (folder: string) => ipcRenderer.invoke('load-transcript-lemmas', folder),
+  loadAllLemmaSources: (folder: string) => ipcRenderer.invoke('load-all-lemma-sources', folder),
 } satisfies ElectronAPI);
